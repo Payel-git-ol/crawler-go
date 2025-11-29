@@ -5,13 +5,19 @@ import (
 	"Fyne-on/internal/ResponseIssuesService"
 	"Fyne-on/pkg/database"
 	"Fyne-on/pkg/models"
+	"Fyne-on/pkg/search"
+	"context"
 	"github.com/gofiber/fiber/v3"
+	"github.com/typesense/typesense-go/v4/typesense/api"
 	"strconv"
 )
+
+func ptr(s string) *string { return &s }
 
 func main() {
 	db := database.InitDB()
 	app := fiber.New()
+	tsClient := search.InitTypesense()
 
 	_, err := GetIssues.FetchIssues(db)
 	if err != nil {
@@ -59,6 +65,22 @@ func main() {
 			"issueId": issueID,
 			"text":    body.Text,
 		})
+	})
+
+	app.Get("/issues/search", func(c fiber.Ctx) error {
+		q := c.Query("q")
+
+		searchParams := &api.SearchCollectionParams{
+			Q:       &q,
+			QueryBy: ptr("title,state,url"),
+		}
+
+		result, err := tsClient.Collection("issues").Documents().Search(context.Background(), searchParams)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"message": err.Error()})
+		}
+
+		return c.JSON(result.Hits)
 	})
 
 	app.Listen(":3000")

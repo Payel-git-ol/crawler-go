@@ -12,5 +12,19 @@ services:
     ports:
       - "5432:5432"
 
+
+  typesense:
+    image: typesense/typesense:0.24.1
+    container_name: typesense
+    ports:
+      - "8108:8108"
+    volumes:
+      - ./typesense-data:/data
+    command: >
+      --data-dir /data
+      --api-key=xyz
+      --enable-cors
+
+
 volumes:
   pg_data:

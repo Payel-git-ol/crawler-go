@@ -81,6 +81,19 @@ func FetchIssues(db *gorm.DB) ([]models.Issue, error) {
 		if skip {
 			continue
 		}
+
+		skipTitleKeywords := []string{"google", "microsoft", "apple", "facebook"}
+
+		for _, kw := range skipTitleKeywords {
+			if strings.Contains(strings.ToLower(gi.Title), kw) {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+
 		for _, pattern := range suspiciousPatterns {
 			if pattern.MatchString(userLogin) {
 				skip = true
