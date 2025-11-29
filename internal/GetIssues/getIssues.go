@@ -1,16 +1,15 @@
 package GetIssues
 
 import (
+	"Fyne-on/internal/ResponseIssuesService"
+	"Fyne-on/pkg/models"
 	"encoding/json"
 	"fmt"
 	"gorm.io/gorm"
-	"math/rand"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
-	"time"
-
-	"Fyne-on/pkg/models"
 )
 
 func FetchIssues(db *gorm.DB) ([]models.Issue, error) {
@@ -115,18 +114,40 @@ func FetchIssues(db *gorm.DB) ([]models.Issue, error) {
 		})
 	}
 
-	// 3. Сравниваем базу и API
 	if !equalIssues(dbIssues, apiIssues) {
 		fmt.Println("Issues changed, updating DB...")
-		db.Exec("DELETE FROM issues") // очистка
+
+		for _, dbIssue := range dbIssues {
+			found := false
+			for _, apiIssue := range apiIssues {
+				if dbIssue.URL == apiIssue.URL {
+					found = true
+					break
+				}
+			}
+			if !found {
+				if err := ResponseIssuesService.DeleteIssue(db, dbIssue.ID); err != nil {
+					fmt.Println("Ошибка удаления:", err)
+				}
+			}
+		}
+
+		// добавляем новые issues
 		if len(apiIssues) > 0 {
 			db.CreateInBatches(apiIssues, 100)
 		}
-		return shuffleIssues(apiIssues), nil
+
+		fmt.Println("Issues unchanged, returning from DB")
+		var loadedIssues []models.Issue
+		db.Preload("Responses").Find(&loadedIssues)
+		return SortByResponses(loadedIssues), nil
 	}
 
 	fmt.Println("Issues unchanged, returning from DB")
-	return shuffleIssues(dbIssues), nil
+	var loadedIssues []models.Issue
+	db.Preload("Responses").Find(&loadedIssues)
+	return SortByResponses(loadedIssues), nil
+
 }
 
 func equalIssues(a, b []models.Issue) bool {
@@ -141,13 +162,9 @@ func equalIssues(a, b []models.Issue) bool {
 	return true
 }
 
-func shuffleIssues(issues []models.Issue) []models.Issue {
-	rand.Seed(time.Now().UnixNano())
-	shuffled := make([]models.Issue, len(issues))
-	copy(shuffled, issues)
-	for i := len(shuffled) - 1; i > 0; i-- {
-		j := rand.Intn(i + 1)
-		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-	}
-	return shuffled
+func SortByResponses(issues []models.Issue) []models.Issue {
+	sort.SliceStable(issues, func(i, j int) bool {
+		return len(issues[i].Responses) > len(issues[j].Responses)
+	})
+	return issues
 }

@@ -14,6 +14,8 @@ func InitDB() *gorm.DB {
 		panic(err)
 	}
 
+	db.Migrator().DropTable(&models.Issue{})
+	db.Migrator().DropTable(&models.Repo{})
 	db.AutoMigrate(&models.Issue{}, &models.Repo{}, &models.IssuesResponse{})
 	return db
 }

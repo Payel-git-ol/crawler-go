@@ -26,7 +26,11 @@ func main() {
 
 	app.Get("/issues", func(c fiber.Ctx) error {
 		var issues []models.Issue
-		db.Find(&issues)
+		if err := db.Preload("Responses").Find(&issues).Error; err != nil {
+			return c.Status(500).JSON(fiber.Map{"message": err.Error()})
+		}
+		issues = GetIssues.SortByResponses(issues)
+
 		return c.JSON(issues)
 	})
 
