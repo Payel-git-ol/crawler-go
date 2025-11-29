@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  postrges:
+    image: postgres:13.3
+    environment:
+      POSTGRES_DB: "scraper_postgres"
+      POSTGRES_USER: "scraper"
+      POSTGRES_PASSWORD: "scraper_pass"
+    ports:
+      - "5432:5432"
+
+volumes:
+  pg_data:
