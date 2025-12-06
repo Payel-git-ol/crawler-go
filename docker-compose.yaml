@@ -1,18 +1,6 @@
 version: "3.9"
 
 services:
-  postrges:
-    image: postgres:13.3
-    environment:
-      POSTGRES_DB: "scraper_postgres"
-      POSTGRES_USER: "scraper"
-      POSTGRES_PASSWORD: "scraper_pass"
-      LANG: en_US.UTF-8
-      LC_ALL: en_US.UTF-8
-    ports:
-      - "5432:5432"
-
-
   typesense:
     image: typesense/typesense:0.24.1
     container_name: typesense
@@ -24,7 +12,9 @@ services:
       --data-dir /data
       --api-key=xyz
       --enable-cors
+    networks:
+      - fyne-network
 
-
-volumes:
-  pg_data:
+networks:
+  fyne-network:
+    driver: bridge
