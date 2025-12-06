@@ -1,0 +1,50 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.so.*
+*.dylib
+bin/
+dist/
+
+# Dependencies
+vendor/
+go.sum
+
+# Test files
+*.test
+*.out
+*.prof
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project specific
+badger_data/
+logs/
+backups/
+*.db
+*.log
+
+# Temporary files
+.tmp/
+tmp/
+temp/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# OS
+Thumbs.db
+.DS_Store
+
+.idea/
+.vscode/

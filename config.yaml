@@ -1,0 +1,97 @@
+# Fyne-on Configuration
+
+# Server configuration
+server:
+  port: 3000
+  read_timeout: 15s
+  write_timeout: 15s
+  
+# Crawler configuration
+crawler:
+  # Starting username for crawling
+  start_username: "torvalds"
+  
+  # Maximum iterations (URLs to crawl)
+  max_iterations: 10000
+  
+  # Delay between requests in milliseconds
+  # Higher values are more respectful to GitHub API
+  delay_ms: 1000
+  
+  # GitHub API token (optional, but recommended)
+  # Get token from: https://github.com/settings/tokens
+  # Required scopes: public_repo, read:user
+  github_token: ""
+
+# Database configuration
+database:
+  # Data directory for Badger KV store
+  data_dir: "./badger_data"
+  
+  # Enable compression (may slow down writes)
+  compression: false
+  
+  # Garbage collection interval (seconds)
+  gc_interval: 60
+
+# Logging configuration
+logging:
+  # Log level: debug, info, warn, error
+  level: "info"
+  
+  # Log format: json or text
+  format: "text"
+  
+  # Log output: stdout or file
+  output: "stdout"
+  
+  # Log file path (if output is "file")
+  file_path: "./logs/app.log"
+
+# Storage configuration
+storage:
+  # Enable backup
+  backup_enabled: false
+  
+  # Backup interval (hours)
+  backup_interval: 24
+  
+  # Backup directory
+  backup_dir: "./backups"
+
+# API configuration
+api:
+  # Enable CORS
+  cors_enabled: true
+  
+  # Allowed origins
+  cors_origins:
+    - "*"
+  
+  # Rate limiting (requests per minute)
+  rate_limit: 100
+
+# Features
+features:
+  # Enable Typesense search integration
+  typesense_enabled: false
+  
+  # Typesense host
+  typesense_host: "localhost"
+  
+  # Typesense port
+  typesense_port: 8108
+  
+  # Typesense API key
+  typesense_api_key: "xyz"
+
+# Advanced settings
+advanced:
+  # Max results per query
+  max_query_results: 1000
+  
+  # Enable query caching
+  query_cache_enabled: true
+  
+  # Query cache TTL (seconds)
+  query_cache_ttl: 300
