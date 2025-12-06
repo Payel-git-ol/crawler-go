@@ -224,3 +224,26 @@ func (b *BadgerDB) CountByPrefix(prefix string) (int, error) {
 	})
 	return count, err
 }
+
+// INSERT: iterate over all keys with a given prefix
+func (b *BadgerDB) IteratePrefix(prefix string, fn func(k []byte, v []byte) error) error {
+	return b.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+
+		p := []byte(prefix)
+		for it.Seek(p); it.ValidForPrefix(p); it.Next() {
+			item := it.Item()
+			k := item.KeyCopy(nil)
+			if err := item.Value(func(v []byte) error {
+				// pass a copy of value to callback
+				val := make([]byte, len(v))
+				copy(val, v)
+				return fn(k, val)
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

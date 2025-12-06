@@ -32,6 +32,9 @@ backups/
 *.db
 *.log
 
+# Ignore Typesense local data
+typesense-data/
+
 # Temporary files
 .tmp/
 tmp/

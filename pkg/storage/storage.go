@@ -3,6 +3,7 @@ package storage
 import (
 	"Fyne-on/pkg/database"
 	"Fyne-on/pkg/models"
+	"encoding/json" // INSERT: needed for unmarshalling
 	"fmt"
 	"time"
 )
@@ -297,4 +298,23 @@ func (s *StorageService) GetCounts() (*StatsSummary, error) {
 		PullRequests: prs,
 		Repositories: repos,
 	}, nil
+}
+
+// INSERT: return all issues across all repositories
+func (s *StorageService) GetAllIssues() ([]models.Issue, error) {
+	const prefix = "issue:"
+	out := make([]models.Issue, 0, 256)
+
+	err := s.db.IteratePrefix(prefix, func(_ []byte, v []byte) error {
+		var issue models.Issue
+		if err := json.Unmarshal(v, &issue); err != nil {
+			return err
+		}
+		out = append(out, issue)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list issues: %w", err)
+	}
+	return out, nil
 }

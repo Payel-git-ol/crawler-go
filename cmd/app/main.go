@@ -4,9 +4,10 @@ import (
 	"Fyne-on/pkg/crawler"
 	"Fyne-on/pkg/database"
 	"Fyne-on/pkg/storage"
-	"encoding/json" // added
+	"crypto/sha256"
+	"encoding/hex"
+	"enco
 	"log"
-	"strconv"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -33,11 +34,13 @@ func main() {
 		MaxIterations int
 		DelayMs       int
 		TokenSet      bool
+		UsePlaywright bool
 	}{
 		StartUsername: "",
 		MaxIterations: 20000,
 		DelayMs:       1000,
 		TokenSet:      false,
+		UsePlaywright: false,
 	}
 
 	// Create Fiber app
@@ -68,13 +71,59 @@ func main() {
 		return c.JSON(summary)
 	})
 
-	// Get all repositories
+	// Get all repositories (add optional issues_count via ?include_issues=count|true|1)
 	app.Get("/repos", func(c fiber.Ctx) error {
+		includeIssues := c.Query("include_issues")
+		includeCount := includeIssues == "count" || includeIssues == "true" || includeIssues == "1"
+
+		// NEW: optional expansion of fields
+		expandQ := c.Query("expand")
+		expand := expandQ == "1" || expandQ == "true" || expandQ == "full"
+
 		repos, err := storageService.GetAllRepos()
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
-		return c.JSON(repos)
+
+		result := make([]fiber.Map, 0, len(repos))
+		for _, repo := range repos {
+			hash := repo.Hash
+			if hash == "" {
+				h := sha256.Sum256([]byte(repo.Owner + "/" + repo.Name))
+				hash = hex.EncodeToString(h[:])
+			}
+
+			item := fiber.Map{
+				"hash":     hash,
+				"owner":    repo.Owner,
+				"name":     repo.Name,
+				"language": repo.Language,
+			}
+
+			// NEW: include additional fields if requested
+			if expand {
+				item["url"] = repo.URL
+				item["description"] = repo.Description
+				item["stars"] = repo.Stars
+				item["license"] = repo.License
+				item["has_open_license"] = repo.HasOpenLicense
+				item["updated_at"] = repo.UpdatedAt
+				item["createdAt"] = repo.CreatedAt
+			}
+
+			if includeCount {
+				issues, err := storageService.GetRepoIssues(repo.Owner + "/" + repo.Name)
+				if err == nil {
+					item["issues_count"] = len(issues)
+				} else {
+					item["issues_count"] = 0
+					log.Printf("failed to load issues for %s/%s: %v", repo.Owner, repo.Name, err)
+				}
+			}
+
+			result = append(result, item)
+		}
+		return c.JSON(result)
 	})
 
 	// Get repository by owner and name
@@ -82,12 +131,53 @@ func main() {
 		owner := c.Params("owner")
 		name := c.Params("name")
 
+		// NEW: optional expansion of fields
+		expandQ := c.Query("expand")
+		expand := expandQ == "1" || expandQ == "true" || expandQ == "full"
+
 		repo, err := storageService.GetRepo(owner, name)
 		if err != nil {
 			return c.Status(404).JSON(fiber.Map{"error": "repository not found"})
 		}
 
-		return c.JSON(repo)
+		hash := repo.Hash
+		if hash == "" {
+			h := sha256.Sum256([]byte(owner + "/" + name))
+			hash = hex.EncodeToString(h[:])
+		}
+
+		if !expand {
+			return c.JSON(fiber.Map{
+				"hash":     hash,
+				"owner":    owner,
+				"name":     name,
+				"language": repo.Language,
+			})
+		}
+
+		// NEW: expanded shape if requested
+		return c.JSON(fiber.Map{
+			"hash":             hash,
+			"owner":            owner,
+			"name":             name,
+			"language":         repo.Language,
+			"url":              repo.URL,
+			"description":      repo.Description,
+			"stars":            repo.Stars,
+			"license":          repo.License,
+			"has_open_license": repo.HasOpenLicense,
+			"updated_at":       repo.UpdatedAt,
+			"createdAt":        repo.CreatedAt,
+		})
+	})
+
+	// INSERT: Get all issues across all repositories
+	app.Get("/issues", func(c fiber.Ctx) error {
+		issues, err := storageService.GetAllIssues()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(issues)
 	})
 
 	// Get repository issues
@@ -124,7 +214,16 @@ func main() {
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
-		return c.JSON(contacts)
+
+		// Only expose username (login) and hash
+		result := make([]fiber.Map, 0, len(contacts))
+		for _, ct := range contacts {
+			result = append(result, fiber.Map{
+				"login": ct.Login,
+				"hash":  ct.Hash,
+			})
+		}
+		return c.JSON(result)
 	})
 
 	// Get contact by login
@@ -136,7 +235,11 @@ func main() {
 			return c.Status(404).JSON(fiber.Map{"error": "contact not found"})
 		}
 
-		return c.JSON(contact)
+		// Only expose username (login) and hash
+		return c.JSON(fiber.Map{
+			"login": contact.Login,
+			"hash":  contact.Hash,
+		})
 	})
 
 	// Start crawler (async)
@@ -158,6 +261,7 @@ func main() {
 			MaxIterations int    `json:"max_iterations"`
 			DelayMs       int    `json:"delay_ms"`
 			GitHubToken   string `json:"github_token"`
+			UsePlaywright bool   `json:"use_playwright"`
 		}
 		var req startReq
 		if err := json.Unmarshal(body, &req); err != nil {
@@ -167,6 +271,7 @@ func main() {
 				MaxIter       int    `json:"MaxIter"`
 				DelayMs       int    `json:"DelayMs"`
 				GitHubToken   string `json:"GitHubToken"`
+				UsePlaywright bool   `json:"UsePlaywright"`
 			}
 			var alt altReq
 			if err2 := json.Unmarshal(body, &alt); err2 != nil {
@@ -180,6 +285,7 @@ func main() {
 				req.DelayMs = alt.DelayMs
 			}
 			req.GitHubToken = alt.GitHubToken
+			req.UsePlaywright = alt.UsePlaywright
 		}
 
 		// Apply crawler settings
@@ -195,47 +301,55 @@ func main() {
 			githubCrawler.SetDelayMs(req.DelayMs)
 			currentCrawlerConfig.DelayMs = req.DelayMs
 		}
+		currentCrawlerConfig.UsePlaywright = req.UsePlaywright
+
 		if req.StartUsername == "" {
 			req.StartUsername = "torvalds"
 		}
 		currentCrawlerConfig.StartUsername = req.StartUsername
 
-		// Run crawler asynchronously
+		// Run crawler asynchronously (HTML mode to avoid GitHub API rate limits)
 		go func(u string) {
-			if err := githubCrawler.CrawlStart(u); err != nil {
+			if err := githubCrawler.CrawlStartHTML(u); err != nil {
 				log.Printf("Crawler error: %v", err)
 			}
 		}(req.StartUsername)
 
 		return c.JSON(fiber.Map{
-			"message":        "Crawler started",
+			"message":        "Crawler started (HTML mode)",
 			"start_username": req.StartUsername,
 			"max_iterations": currentCrawlerConfig.MaxIterations,
 			"delay_ms":       currentCrawlerConfig.DelayMs,
+			"use_playwright": currentCrawlerConfig.UsePlaywright,
 		})
 	})
 
 	// Query repositories (filter by language, stars, etc.)
 	app.Get("/repos/search", func(c fiber.Ctx) error {
 		language := c.Query("language")
-		minStars := c.Query("min_stars", "0")
-
-		minStarsInt, _ := strconv.Atoi(minStars)
 
 		repos, err := storageService.GetAllRepos()
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 
-		filtered := []interface{}{}
+		filtered := []fiber.Map{}
 		for _, repo := range repos {
 			if language != "" && repo.Language != language {
 				continue
 			}
-			if repo.Stars < minStarsInt {
-				continue
+			// Sanitize repo output: only hash/owner/name/language
+			hash := repo.Hash
+			if hash == "" {
+				h := sha256.Sum256([]byte(repo.Owner + "/" + repo.Name))
+				hash = hex.EncodeToString(h[:])
 			}
-			filtered = append(filtered, repo)
+			filtered = append(filtered, fiber.Map{
+				"hash":     hash,
+				"owner":    repo.Owner,
+				"name":     repo.Name,
+				"language": repo.Language,
+			})
 		}
 
 		return c.JSON(filtered)
@@ -260,6 +374,7 @@ func main() {
 			"max_iterations": currentCrawlerConfig.MaxIterations,
 			"delay_ms":       currentCrawlerConfig.DelayMs,
 			"token_set":      currentCrawlerConfig.TokenSet,
+			"use_playwright": currentCrawlerConfig.UsePlaywright,
 		})
 	})
 
@@ -267,16 +382,17 @@ func main() {
 		routes := []fiber.Map{
 			{"method": "GET", "path": "/health", "description": "Health check"},
 			{"method": "GET", "path": "/stats", "description": "Get database statistics"},
-			{"method": "GET", "path": "/repos", "description": "Get all repositories"},
+			{"method": "GET", "path": "/repos", "description": "Get all repositories (query: include_issues=count)"},
 			{"method": "GET", "path": "/repos/:owner/:name", "description": "Get specific repository"},
 			{"method": "GET", "path": "/repos/:owner/:name/issues", "description": "Get repository issues"},
 			{"method": "GET", "path": "/repos/:owner/:name/prs", "description": "Get repository pull requests"},
-			{"method": "GET", "path": "/repos/search", "description": "Search repositories (query: language, min_stars)"},
+			{"method": "GET", "path": "/repos/search", "description": "Search repositories (query: language)"},
 			{"method": "DELETE", "path": "/repos/:owner/:name", "description": "Delete repository"},
 			{"method": "GET", "path": "/contacts", "description": "Get all contacts"},
 			{"method": "GET", "path": "/contacts/:login", "description": "Get specific contact"},
-			{"method": "POST", "path": "/crawler/start", "description": "Start crawler (body: start_username, max_iterations, delay_ms, github_token)"},
+			{"method": "POST", "path": "/crawler/start", "description": "Start crawler (HTML mode; body: start_username, max_iterations, delay_ms, github_token, use_playwright)"},
 			{"method": "GET", "path": "/crawler/config", "description": "Get current crawler configuration"},
+			{"method": "GET", "path": "/issues", "description": "Get all issues"},
 			{"method": "GET", "path": "/api/routes", "description": "List all available endpoints"},
 		}
 		return c.JSON(routes)
