@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/dgraph-io/badger/v3"
 )
@@ -26,6 +27,22 @@ func InitDB() (*BadgerDB, error) {
 
 	opts := badger.DefaultOptions(dbPath)
 	opts.Logger = nil // Disable logging
+	opts.SyncWrites = false
+	// Removed unsupported option in current Badger version:
+	// opts.MaxTableSize = 64 << 20 // 64MB
+
+	// NEW: allow overriding SyncWrites via environment variable
+	if v := os.Getenv("BADGER_SYNC_WRITES"); v != "" {
+		switch {
+		case v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes"):
+			opts.SyncWrites = true
+		case v == "0" || strings.EqualFold(v, "false") || strings.EqualFold(v, "no"):
+			opts.SyncWrites = false
+		}
+	}
+
+	// Keep value log file size tuning (this option exists in v3)
+	opts.ValueLogFileSize = 256 << 20 // 256MB
 
 	db, err := badger.Open(opts)
 	if err != nil {
@@ -187,4 +204,23 @@ func (b *BadgerDB) IterateWithPrefix(prefix string, fn func(key string, value []
 		}
 		return nil
 	})
+}
+
+// CountByPrefix returns the number of keys starting with the given prefix.
+// This is used by stats summary to count contacts/issues/prs/repos.
+func (b *BadgerDB) CountByPrefix(prefix string) (int, error) {
+	count := 0
+	err := b.db.View(func(txn *badger.Txn) error {
+		itrOpts := badger.DefaultIteratorOptions
+		itrOpts.PrefetchValues = false
+		it := txn.NewIterator(itrOpts)
+		defer it.Close()
+
+		p := []byte(prefix)
+		for it.Seek(p); it.ValidForPrefix(p); it.Next() {
+			count++
+		}
+		return nil
+	})
+	return count, err
 }

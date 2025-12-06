@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"time"
 
+	"Fyne-on/pkg/markov"
 	"Fyne-on/pkg/models"
+	"Fyne-on/pkg/scraper"
 	"Fyne-on/pkg/storage"
 )
 
@@ -18,6 +20,13 @@ type GithubCrawler struct {
 	maxIterations int
 	delayMs       int
 	token         string // GitHub API token (optional, for higher rate limits)
+
+	// Added fields to fix compilation
+	markovChain   *markov.MarkovChain
+	usePlaywright bool
+
+	// NEW: HTML scraper
+	htmlScraper *scraper.HTTPScraper
 }
 
 // NewGithubCrawler creates a new GitHub crawler
@@ -26,14 +35,35 @@ func NewGithubCrawler(storage *storage.StorageService) *GithubCrawler {
 		storage:       storage,
 		visited:       make(map[string]bool),
 		client:        &http.Client{Timeout: 15 * time.Second},
-		maxIterations: 10000,
+		maxIterations: 20000, // повышаем дефолт
 		delayMs:       1000,
+		markovChain:   markov.NewMarkovChain(0),
+		// usePlaywright defaults to false
+		htmlScraper: scraper.NewHTTPScraper(15),
 	}
 }
 
 // SetGitHubToken sets GitHub API token for higher rate limits
 func (gc *GithubCrawler) SetGitHubToken(token string) {
 	gc.token = token
+}
+
+// SetMaxIterations sets maximum iterations
+func (gc *GithubCrawler) SetMaxIterations(n int) {
+	if n > 0 {
+		gc.maxIterations = n
+	}
+}
+
+// SetDelayMs sets delay between requests in milliseconds
+func (gc *GithubCrawler) SetDelayMs(ms int) {
+	if ms >= 0 {
+		gc.delayMs = ms
+	}
+}
+
+func (gc *GithubCrawler) UsePlaywright(v bool) {
+	gc.usePlaywright = v
 }
 
 // makeRequest makes an HTTP request with proper headers
@@ -150,6 +180,7 @@ func (gc *GithubCrawler) FetchUserStarredRepos(username string) ([]models.Repo, 
 				License:     rd.License.Key,
 				UpdatedAt:   time.Now(),
 			}
+			// no change here; errors logged in CrawlStart below
 			repos = append(repos, repo)
 		}
 
@@ -385,7 +416,12 @@ func (gc *GithubCrawler) CrawlStart(startUsername string) error {
 		repos, err := gc.FetchUserStarredRepos(username)
 		if err == nil {
 			for _, repo := range repos {
-				isNew, _ := gc.storage.SaveRepo(repo)
+				// CHANGED: capture and log errors from SaveRepo
+				isNew, saveErr := gc.storage.SaveRepo(repo)
+				if saveErr != nil {
+					fmt.Printf("  SaveRepo failed for %s: %v\n", repo.ID, saveErr)
+					continue
+				}
 				if isNew {
 					fmt.Printf("  New repo: %s/%s\n", repo.Owner, repo.Name)
 
@@ -422,17 +458,93 @@ func (gc *GithubCrawler) CrawlStart(startUsername string) error {
 	return nil
 }
 
-// SetMaxIterations sets maximum iterations
-func (gc *GithubCrawler) SetMaxIterations(max int) {
-	gc.maxIterations = max
-}
-
-// SetDelayMs sets delay between requests in milliseconds
-func (gc *GithubCrawler) SetDelayMs(ms int) {
-	gc.delayMs = ms
-}
-
 // GetVisitedCount returns number of visited URLs
 func (gc *GithubCrawler) GetVisitedCount() int {
 	return len(gc.visited)
+}
+
+// CrawlStart performs HTML-based crawling starting from a username.
+// It scrapes trending developers when start is empty, then user repos via HTML.
+// RENAMED: avoid duplicate declaration with API-based CrawlStart
+func (gc *GithubCrawler) CrawlStartHTML(startUsername string) error {
+	iter := 0
+
+	frontier := []string{}
+	if startUsername != "" {
+		frontier = append(frontier, startUsername)
+	} else {
+		trending, err := gc.htmlScraper.FetchTrendingDevelopers()
+		if err == nil && len(trending) > 0 {
+			frontier = append(frontier, trending...)
+		} else {
+			frontier = append(frontier, "torvalds")
+		}
+	}
+
+	for len(frontier) > 0 && iter < gc.maxIterations {
+		current := frontier[0]
+		frontier = frontier[1:]
+
+		if gc.visited[current] {
+			continue
+		}
+		gc.visited[current] = true
+
+		// Scrape user's repositories via HTML
+		userRepos, err := gc.htmlScraper.FetchUserRepos(current)
+		if err != nil {
+			// continue to next user on failure
+			if gc.delayMs > 0 {
+				time.Sleep(time.Duration(gc.delayMs) * time.Millisecond)
+			}
+			continue
+		}
+
+		for _, r := range userRepos {
+			repo := models.Repo{
+				Name:        r.Name,
+				Owner:       r.Owner,
+				URL:         r.URL,
+				Description: r.Description,
+				Language:    r.Language,
+				Stars:       r.Stars,
+				// ADD: Ensure HTML-scraped repos have ID and UpdatedAt for stats
+				ID: r.Owner + "/" + r.Name,
+				// CHANGED: include CreatedAt; some storage/stats require it
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			}
+
+			// CHANGED: capture and log SaveRepo errors
+			isNew, saveErr := gc.storage.SaveRepo(repo)
+			if saveErr != nil {
+				fmt.Printf("  SaveRepo failed for %s: %v\n", repo.ID, saveErr)
+				// continue to next repo if storage rejected this one
+				iter++
+				if gc.delayMs > 0 {
+					time.Sleep(time.Duration(gc.delayMs) * time.Millisecond)
+				}
+				if iter >= gc.maxIterations {
+					break
+				}
+				continue
+			}
+			if isNew {
+				fmt.Printf("  New repo (HTML): %s\n", repo.ID)
+			}
+
+			// Basic Markov transition from user to repo
+			gc.markovChain.AddTransition(current, r.Owner+"/"+r.Name)
+
+			iter++
+			if gc.delayMs > 0 {
+				time.Sleep(time.Duration(gc.delayMs) * time.Millisecond)
+			}
+			if iter >= gc.maxIterations {
+				break
+			}
+		}
+	}
+
+	return nil
 }

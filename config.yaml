@@ -12,7 +12,7 @@ crawler:
   start_username: "torvalds"
   
   # Maximum iterations (URLs to crawl)
-  max_iterations: 10000
+  max_iterations: 20000
   
   # Delay between requests in milliseconds
   # Higher values are more respectful to GitHub API
@@ -23,26 +23,19 @@ crawler:
   # Required scopes: public_repo, read:user
   github_token: ""
 
+  # Use Playwright to bootstrap trending developers (optional)
+  use_playwright: false
+
 # Database configuration
 database:
-  # Data directory for Badger KV store
   data_dir: "./badger_data"
-  
-  # Enable compression (may slow down writes)
   compression: false
-  
-  # Garbage collection interval (seconds)
   gc_interval: 60
 
 # Logging configuration
 logging:
-  # Log level: debug, info, warn, error
   level: "info"
-  
-  # Log format: json or text
   format: "text"
-  
-  # Log output: stdout or file
   output: "stdout"
   
   # Log file path (if output is "file")

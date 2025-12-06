@@ -262,3 +262,39 @@ func (s *StorageService) DeleteRepo(owner, name string) error {
 	// Delete repo
 	return s.db.Delete(key)
 }
+
+// StatsSummary is a compact JSON with aggregated counts.
+// It matches the exact format you requested.
+type StatsSummary struct {
+	Contacts     int `json:"contacts"`
+	Issues       int `json:"issues"`
+	PullRequests int `json:"pull_requests"`
+	Repositories int `json:"repositories"`
+}
+
+// GetCounts returns a StatsSummary by counting key prefixes in the KV store.
+func (s *StorageService) GetCounts() (*StatsSummary, error) {
+	contacts, err := s.db.CountByPrefix("contact:")
+	if err != nil {
+		return nil, fmt.Errorf("count contacts failed: %w", err)
+	}
+	issues, err := s.db.CountByPrefix("issue:")
+	if err != nil {
+		return nil, fmt.Errorf("count issues failed: %w", err)
+	}
+	prs, err := s.db.CountByPrefix("pr:")
+	if err != nil {
+		return nil, fmt.Errorf("count pull_requests failed: %w", err)
+	}
+	repos, err := s.db.CountByPrefix("repo:")
+	if err != nil {
+		return nil, fmt.Errorf("count repositories failed: %w", err)
+	}
+
+	return &StatsSummary{
+		Contacts:     contacts,
+		Issues:       issues,
+		PullRequests: prs,
+		Repositories: repos,
+	}, nil
+}

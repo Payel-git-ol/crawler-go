@@ -4,6 +4,7 @@ import (
 	"Fyne-on/pkg/crawler"
 	"Fyne-on/pkg/database"
 	"Fyne-on/pkg/storage"
+	"encoding/json" // added
 	"log"
 	"strconv"
 
@@ -23,8 +24,21 @@ func main() {
 
 	// Initialize GitHub crawler
 	githubCrawler := crawler.NewGithubCrawler(storageService)
-	githubCrawler.SetMaxIterations(10000)
+	githubCrawler.SetMaxIterations(20000)
 	githubCrawler.SetDelayMs(1000)
+
+	// ADD: track current crawler config BEFORE usage in handlers
+	currentCrawlerConfig := struct {
+		StartUsername string
+		MaxIterations int
+		DelayMs       int
+		TokenSet      bool
+	}{
+		StartUsername: "",
+		MaxIterations: 20000,
+		DelayMs:       1000,
+		TokenSet:      false,
+	}
 
 	// Create Fiber app
 	app := fiber.New()
@@ -37,10 +51,21 @@ func main() {
 		})
 	})
 
-	// Get statistics
+	// Get statistics (existing)
 	app.Get("/stats", func(c fiber.Ctx) error {
 		stats := storageService.GetStats()
 		return c.JSON(stats)
+	})
+
+	// Add: compact JSON summary counts you requested
+	app.Get("/stats/summary", func(c fiber.Ctx) error {
+		summary, err := storageService.GetCounts()
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		return c.JSON(summary)
 	})
 
 	// Get all repositories
@@ -115,46 +140,78 @@ func main() {
 	})
 
 	// Start crawler (async)
+	// Запуск краулера с параметрами
+	type CrawlRequest struct {
+		StartUsername string `json:"start_username"`
+		MaxIterations int    `json:"max_iterations"`
+		DelayMs       int    `json:"delay_ms"`
+		GitHubToken   string `json:"github_token"`
+		UsePlaywright bool   `json:"use_playwright"`
+	}
+
+	// Start crawler (fixed: manual JSON parsing + use CrawlStart)
 	app.Post("/crawler/start", func(c fiber.Ctx) error {
-		var body struct {
+		body := c.Body()
+
+		type startReq struct {
 			StartUsername string `json:"start_username"`
-			MaxIter       int    `json:"max_iterations"`
+			MaxIterations int    `json:"max_iterations"`
 			DelayMs       int    `json:"delay_ms"`
-			GithubToken   string `json:"github_token"`
+			GitHubToken   string `json:"github_token"`
+		}
+		var req startReq
+		if err := json.Unmarshal(body, &req); err != nil {
+			// try alternate key casing used in scripts
+			type altReq struct {
+				StartUsername string `json:"StartUsername"`
+				MaxIter       int    `json:"MaxIter"`
+				DelayMs       int    `json:"DelayMs"`
+				GitHubToken   string `json:"GitHubToken"`
+			}
+			var alt altReq
+			if err2 := json.Unmarshal(body, &alt); err2 != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "invalid JSON: " + err.Error()})
+			}
+			req.StartUsername = alt.StartUsername
+			if alt.MaxIter > 0 {
+				req.MaxIterations = alt.MaxIter
+			}
+			if alt.DelayMs >= 0 {
+				req.DelayMs = alt.DelayMs
+			}
+			req.GitHubToken = alt.GitHubToken
 		}
 
-		if err := c.Bind().JSON(&body); err != nil {
-			return c.Status(400).JSON(fiber.Map{"error": "invalid request"})
+		// Apply crawler settings
+		if req.GitHubToken != "" {
+			githubCrawler.SetGitHubToken(req.GitHubToken)
+			currentCrawlerConfig.TokenSet = true
 		}
+		if req.MaxIterations > 0 {
+			githubCrawler.SetMaxIterations(req.MaxIterations)
+			currentCrawlerConfig.MaxIterations = req.MaxIterations
+		}
+		if req.DelayMs >= 0 {
+			githubCrawler.SetDelayMs(req.DelayMs)
+			currentCrawlerConfig.DelayMs = req.DelayMs
+		}
+		if req.StartUsername == "" {
+			req.StartUsername = "torvalds"
+		}
+		currentCrawlerConfig.StartUsername = req.StartUsername
 
-		if body.StartUsername == "" {
-			body.StartUsername = "torvalds" // Default: start from Linus Torvalds
-		}
-		if body.MaxIter == 0 {
-			body.MaxIter = 10000
-		}
-		if body.DelayMs == 0 {
-			body.DelayMs = 1000
-		}
-
-		githubCrawler.SetMaxIterations(body.MaxIter)
-		githubCrawler.SetDelayMs(body.DelayMs)
-		if body.GithubToken != "" {
-			githubCrawler.SetGitHubToken(body.GithubToken)
-		}
-
-		// Run crawler in goroutine
-		go func() {
-			if err := githubCrawler.CrawlStart(body.StartUsername); err != nil {
+		// Run crawler asynchronously
+		go func(u string) {
+			if err := githubCrawler.CrawlStart(u); err != nil {
 				log.Printf("Crawler error: %v", err)
 			}
-		}()
+		}(req.StartUsername)
 
 		return c.JSON(fiber.Map{
 			"message":        "Crawler started",
-			"start_username": body.StartUsername,
-			"max_iterations": body.MaxIter,
-			"delay_ms":       body.DelayMs,
+			"start_username": req.StartUsername,
+			"max_iterations": currentCrawlerConfig.MaxIterations,
+			"delay_ms":       currentCrawlerConfig.DelayMs,
 		})
 	})
 
@@ -196,7 +253,16 @@ func main() {
 		return c.JSON(fiber.Map{"message": "repository deleted"})
 	})
 
-	// List all available endpoints
+	// INSERT: endpoints that were only present in the removed duplicate block
+	app.Get("/crawler/config", func(c fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"start_username": currentCrawlerConfig.StartUsername,
+			"max_iterations": currentCrawlerConfig.MaxIterations,
+			"delay_ms":       currentCrawlerConfig.DelayMs,
+			"token_set":      currentCrawlerConfig.TokenSet,
+		})
+	})
+
 	app.Get("/api/routes", func(c fiber.Ctx) error {
 		routes := []fiber.Map{
 			{"method": "GET", "path": "/health", "description": "Health check"},
@@ -210,6 +276,7 @@ func main() {
 			{"method": "GET", "path": "/contacts", "description": "Get all contacts"},
 			{"method": "GET", "path": "/contacts/:login", "description": "Get specific contact"},
 			{"method": "POST", "path": "/crawler/start", "description": "Start crawler (body: start_username, max_iterations, delay_ms, github_token)"},
+			{"method": "GET", "path": "/crawler/config", "description": "Get current crawler configuration"},
 			{"method": "GET", "path": "/api/routes", "description": "List all available endpoints"},
 		}
 		return c.JSON(routes)

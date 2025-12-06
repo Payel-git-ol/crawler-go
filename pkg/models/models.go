@@ -32,6 +32,7 @@ type Repo struct {
 	License        string    `json:"license"`
 	Hash           string    `json:"hash"`
 	UpdatedAt      time.Time `json:"updated_at"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 // Issue represents a GitHub issue

@@ -1,6 +1,8 @@
 version: "3.9"
 
 services:
+  # Typesense support temporarily removed. Add services here if needed.
+  # For scaling the app itself, consider dockerizing the Go app (Dockerfile already present).
   typesense:
     image: typesense/typesense:0.24.1
     container_name: typesense
