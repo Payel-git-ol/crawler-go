@@ -6,7 +6,7 @@ import (
 	"Fyne-on/pkg/storage"
 	"crypto/sha256"
 	"encoding/hex"
-	"enco
+	"encoding/json"
 	"log"
 
 	"github.com/gofiber/fiber/v3"
