@@ -446,7 +446,6 @@ func (gc *GithubCrawler) FetchUserRepos(username string) ([]models.Repo, error) 
 	return repos, nil
 }
 
-// FetchOrgReposHTML
 func (gc *GithubCrawler) FetchOrgReposHTML(org string) ([]models.Repo, error) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -466,7 +465,6 @@ func (gc *GithubCrawler) FetchOrgReposHTML(org string) ([]models.Repo, error) {
 
 			found := 0
 
-			// Селектор №1: ссылки с hovercard
 			doc.Find("a[data-hovercard-type='repository']").Each(func(i int, s *goquery.Selection) {
 				href, _ := s.Attr("href")
 				parts := strings.Split(href, "/")
@@ -495,7 +493,6 @@ func (gc *GithubCrawler) FetchOrgReposHTML(org string) ([]models.Repo, error) {
 				found++
 			})
 
-			// Селектор №2: h3 a
 			doc.Find("h3 a").Each(func(i int, s *goquery.Selection) {
 				href, _ := s.Attr("href")
 				parts := strings.Split(href, "/")
@@ -524,7 +521,6 @@ func (gc *GithubCrawler) FetchOrgReposHTML(org string) ([]models.Repo, error) {
 				found++
 			})
 
-			// Селектор №3: запасной — ссылки внутри Box-row
 			doc.Find("li.Box-row a").Each(func(i int, s *goquery.Selection) {
 				href, _ := s.Attr("href")
 				if !strings.Contains(href, "/"+org+"/") {
@@ -669,7 +665,6 @@ func (gc *GithubCrawler) CrawlStart(startUsername string) error {
 	return nil
 }
 
-// CrawlStartOrgsHTML
 func (gc *GithubCrawler) CrawlStartOrgsHTML(orgs []string) error {
 	iter := 0
 
