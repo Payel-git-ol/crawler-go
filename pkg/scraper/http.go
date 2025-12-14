@@ -14,11 +14,29 @@ type HTTPScraper struct {
 	client *http.Client
 }
 
-// NewHTTPScraper creates a new HTTP scraper
 func NewHTTPScraper(timeoutSec int) *HTTPScraper {
 	return &HTTPScraper{
 		client: &http.Client{Timeout: time.Duration(timeoutSec) * time.Second},
 	}
+}
+
+// FetchDocument загружает страницу и возвращает goquery.Document
+func (s *HTTPScraper) FetchDocument(url string) (*goquery.Document, error) {
+	resp, err := s.client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status code: %d", resp.StatusCode)
+	}
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return doc, nil
 }
 
 // RepositoryIssue represents a repository issue

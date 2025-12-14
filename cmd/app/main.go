@@ -292,12 +292,20 @@ func main() {
 			req.StartUsernames = []string{"microsoft"}
 		}
 
-		for _, user := range req.StartUsernames {
-			go func(u string) {
-				if err := githubCrawler.CrawlStart(u); err != nil {
-					log.Printf("Crawler error for %s: %v", u, err)
+		if req.UsePlaywright {
+			go func(orgs []string) {
+				if err := githubCrawler.CrawlStartOrgsHTML(orgs); err != nil {
+					log.Printf("HTML crawler error: %v", err)
 				}
-			}(user)
+			}(req.StartUsernames)
+		} else {
+			for _, user := range req.StartUsernames {
+				go func(u string) {
+					if err := githubCrawler.CrawlStart(u); err != nil {
+						log.Printf("Crawler error for %s: %v", u, err)
+					}
+				}(user)
+			}
 		}
 
 		return c.JSON(fiber.Map{

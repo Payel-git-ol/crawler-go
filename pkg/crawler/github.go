@@ -3,10 +3,13 @@ package crawler
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/PuerkitoBio/goquery"
 	"io"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"Fyne-on/pkg/markov"
@@ -443,6 +446,133 @@ func (gc *GithubCrawler) FetchUserRepos(username string) ([]models.Repo, error) 
 	return repos, nil
 }
 
+// FetchOrgReposHTML
+func (gc *GithubCrawler) FetchOrgReposHTML(org string) ([]models.Repo, error) {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	repos := []models.Repo{}
+	seen := make(map[string]bool)
+
+	for page := 1; page <= 50; page++ {
+		wg.Add(1)
+		go func(p int) {
+			defer wg.Done()
+			url := fmt.Sprintf("https://github.com/orgs/%s/repositories?page=%d", org, p)
+			doc, err := gc.htmlScraper.FetchDocument(url)
+			if err != nil {
+				log.Printf("HTML fetch failed for %s page %d: %v", org, p, err)
+				return
+			}
+
+			found := 0
+
+			// Селектор №1: ссылки с hovercard
+			doc.Find("a[data-hovercard-type='repository']").Each(func(i int, s *goquery.Selection) {
+				href, _ := s.Attr("href")
+				parts := strings.Split(href, "/")
+				if len(parts) < 3 {
+					return
+				}
+				id := parts[1] + "/" + parts[2]
+
+				mu.Lock()
+				if seen[id] {
+					mu.Unlock()
+					return
+				}
+				seen[id] = true
+				repo := models.Repo{
+					Owner:     parts[1],
+					Name:      parts[2],
+					URL:       "https://github.com" + href,
+					ID:        id,
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				}
+				repos = append(repos, repo)
+				gc.storage.SaveRepo(repo)
+				mu.Unlock()
+				found++
+			})
+
+			// Селектор №2: h3 a
+			doc.Find("h3 a").Each(func(i int, s *goquery.Selection) {
+				href, _ := s.Attr("href")
+				parts := strings.Split(href, "/")
+				if len(parts) < 3 {
+					return
+				}
+				id := parts[1] + "/" + parts[2]
+
+				mu.Lock()
+				if seen[id] {
+					mu.Unlock()
+					return
+				}
+				seen[id] = true
+				repo := models.Repo{
+					Owner:     parts[1],
+					Name:      parts[2],
+					URL:       "https://github.com" + href,
+					ID:        id,
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				}
+				repos = append(repos, repo)
+				gc.storage.SaveRepo(repo)
+				mu.Unlock()
+				found++
+			})
+
+			// Селектор №3: запасной — ссылки внутри Box-row
+			doc.Find("li.Box-row a").Each(func(i int, s *goquery.Selection) {
+				href, _ := s.Attr("href")
+				if !strings.Contains(href, "/"+org+"/") {
+					return
+				}
+				parts := strings.Split(href, "/")
+				if len(parts) < 3 {
+					return
+				}
+				id := parts[1] + "/" + parts[2]
+
+				mu.Lock()
+				if seen[id] {
+					mu.Unlock()
+					return
+				}
+				seen[id] = true
+				repo := models.Repo{
+					Owner:     parts[1],
+					Name:      parts[2],
+					URL:       "https://github.com" + href,
+					ID:        id,
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				}
+				repos = append(repos, repo)
+				gc.storage.SaveRepo(repo)
+				mu.Unlock()
+				found++
+			})
+
+			log.Printf("Page %d for %s: found %d repos", p, org, found)
+		}(page)
+	}
+
+	wg.Wait()
+	return repos, nil
+}
+
+func parseStars(s string) int {
+	s = strings.ReplaceAll(s, ",", "")
+	val, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return 0
+	}
+	return val
+}
+
 func (gc *GithubCrawler) GetTrendingDevelopers(language string) ([]string, error) {
 	developers := []string{}
 
@@ -536,6 +666,43 @@ func (gc *GithubCrawler) CrawlStart(startUsername string) error {
 	}
 
 	log.Printf("Crawling completed. Processed %d users\n", iteration)
+	return nil
+}
+
+// CrawlStartOrgsHTML
+func (gc *GithubCrawler) CrawlStartOrgsHTML(orgs []string) error {
+	iter := 0
+
+	for _, org := range orgs {
+		log.Printf("Crawling org: %s", org)
+
+		repos, err := gc.FetchOrgReposHTML(org)
+		if err != nil {
+			log.Printf("Failed to fetch repos for %s: %v", org, err)
+			continue
+		}
+
+		for _, repo := range repos {
+			isNew, saveErr := gc.storage.SaveRepo(repo)
+			if saveErr != nil {
+				log.Printf("SaveRepo failed for %s: %v", repo.ID, saveErr)
+				continue
+			}
+			if isNew {
+				log.Printf("New repo saved: %s", repo.ID)
+			}
+
+			iter++
+			if iter >= gc.maxIterations {
+				log.Printf("Reached max iterations (%d)", gc.maxIterations)
+				return nil
+			}
+		}
+
+		time.Sleep(time.Duration(gc.delayMs) * time.Millisecond)
+	}
+
+	log.Printf("HTML crawling completed. Saved %d repos", iter)
 	return nil
 }
 
