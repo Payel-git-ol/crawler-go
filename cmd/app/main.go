@@ -92,6 +92,7 @@ func main() {
 				"owner":    repo.Owner,
 				"name":     repo.Name,
 				"language": repo.Language,
+				"url":      repo.URL,
 			}
 
 			// NEW: include additional fields if requested
@@ -146,6 +147,7 @@ func main() {
 				"owner":    owner,
 				"name":     name,
 				"language": repo.Language,
+				"url":      repo.URL,
 			})
 		}
 
