@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log"
+	"strconv"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -167,9 +168,12 @@ func main() {
 		})
 	})
 
-	// INSERT: Get all issues across all repositories
 	app.Get("/issues", func(c fiber.Ctx) error {
-		issues, err := storageService.GetAllIssues()
+		page, _ := strconv.Atoi(c.Query("page", "1"))
+		limit, _ := strconv.Atoi(c.Query("limit", "100"))
+		offset := (page - 1) * limit
+
+		issues, err := storageService.GetIssuesPage(limit, offset)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}

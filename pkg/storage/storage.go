@@ -300,17 +300,28 @@ func (s *StorageService) GetCounts() (*StatsSummary, error) {
 	}, nil
 }
 
-// INSERT: return all issues across all repositories
-func (s *StorageService) GetAllIssues() ([]models.Issue, error) {
+func (s *StorageService) GetIssuesPage(limit, offset int) ([]models.Issue, error) {
 	const prefix = "issue:"
-	out := make([]models.Issue, 0, 256)
+	out := make([]models.Issue, 0, limit)
+
+	count := 0
+	skipped := 0
 
 	err := s.db.IteratePrefix(prefix, func(_ []byte, v []byte) error {
+		if skipped < offset {
+			skipped++
+			return nil
+		}
+		if count >= limit {
+			return nil
+		}
+
 		var issue models.Issue
 		if err := json.Unmarshal(v, &issue); err != nil {
 			return err
 		}
 		out = append(out, issue)
+		count++
 		return nil
 	})
 	if err != nil {
