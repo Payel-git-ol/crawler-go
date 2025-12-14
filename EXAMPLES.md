@@ -1,3 +1,6 @@
+Отлично, Павел 👌. Я собрал для тебя полный актуальный `EXAMPLES.md` целиком, в одном кодовом блоке, чтобы можно было сразу заменить файл:
+
+```markdown
 # Примеры использования API Fyne-on
 
 ## 1. Проверка здоровья приложения
@@ -13,6 +16,8 @@ curl -X GET http://localhost:3000/health
   "message": "Fyne-on crawler is running"
 }
 ```
+
+---
 
 ## 2. Получить статистику базы данных
 
@@ -30,157 +35,136 @@ curl -X GET http://localhost:3000/stats
 }
 ```
 
-## 3. Запустить crawler
+---
 
-Запустить краулер с начальной точки (username: torvalds):
+## 3. Получить компактную статистику
+
+```bash
+curl -X GET http://localhost:3000/stats/summary
+```
+
+Ответ:
+```json
+{
+  "repositories": 1250,
+  "contacts": 3450,
+  "issues": 45230,
+  "pull_requests": 12340
+}
+```
+
+---
+
+## 4. Запустить crawler
 
 ```bash
 curl -X POST http://localhost:3000/crawler/start \
   -H "Content-Type: application/json" \
   -d '{
-    "start_username": "torvalds",
+    "start_usernames": ["torvalds"],
     "max_iterations": 10000,
     "delay_ms": 1000,
-    "github_token": "your_token_here"
+    "github_token": "your_token_here",
+    "use_playwright": false
   }'
 ```
 
 Ответ:
 ```json
 {
-  "message": "Crawler started",
-  "start_username": "torvalds",
+  "message": "Crawler started (API mode)",
+  "start_username": ["torvalds"],
   "max_iterations": 10000,
-  "delay_ms": 1000
+  "delay_ms": 1000,
+  "use_playwright": false
 }
 ```
 
-С GitHub токеном (повышает лимит запросов):
+---
 
-```bash
-curl -X POST http://localhost:3000/crawler/start \
-  -H "Content-Type: application/json" \
-  -d '{
-    "start_username": "gvanrossum",
-    "max_iterations": 5000,
-    "delay_ms": 500,
-    "github_token": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  }'
-```
-
-## 4. Получить все репозитории
+## 5. Получить все репозитории
 
 ```bash
 curl -X GET http://localhost:3000/repos
 ```
 
-## 5. Получить конкретный репозиторий
+С параметрами:
+- `expand=true` — расширенные поля
+- `include_issues=count` — добавить количество issues
+
+---
+
+## 6. Получить конкретный репозиторий
 
 ```bash
 curl -X GET http://localhost:3000/repos/torvalds/linux
 ```
 
-Ответ:
-```json
-{
-  "id": "torvalds/linux",
-  "name": "linux",
-  "owner": "torvalds",
-  "url": "https://github.com/torvalds/linux",
-  "description": "Linux kernel source tree",
-  "stars": 180000,
-  "language": "C",
-  "has_open_license": true,
-  "license": "GPL-2.0",
-  "hash": "sha256hash...",
-  "updated_at": "2024-01-15T10:30:00Z"
-}
-```
+---
 
-## 6. Получить issues репозитория
+## 7. Получить issues репозитория
 
 ```bash
 curl -X GET http://localhost:3000/repos/torvalds/linux/issues
 ```
 
-Ответ:
-```json
-[
-  {
-    "id": "123456",
-    "repo_id": "torvalds/linux",
-    "title": "CPU frequency scaling issue",
-    "url": "https://github.com/torvalds/linux/issues/123456",
-    "state": "open",
-    "body": "Issue description...",
-    "author": "username",
-    "created_at": "2024-01-10T15:20:00Z",
-    "updated_at": "2024-01-15T10:30:00Z",
-    "hash": "sha256hash..."
-  }
-]
-```
+---
 
-## 7. Получить PRs репозитория
+## 8. Получить PRs репозитория
 
 ```bash
 curl -X GET http://localhost:3000/repos/golang/go/prs
 ```
 
-## 8. Поиск репозиториев по языку
+---
+
+## 9. Поиск репозиториев по языку
 
 ```bash
-curl -X GET "http://localhost:3000/repos/search?language=Go&min_stars=100"
+curl -X GET "http://localhost:3000/repos/search?language=Go"
 ```
 
-## 9. Получить все контакты (разработчики)
+---
+
+## 10. Получить все контакты (разработчики)
 
 ```bash
 curl -X GET http://localhost:3000/contacts
 ```
 
-Ответ:
-```json
-[
-  {
-    "id": "1",
-    "login": "torvalds",
-    "url": "https://github.com/torvalds",
-    "avatar": "https://avatars.githubusercontent.com/u/1?v=4",
-    "company": "Linux Foundation",
-    "email": "",
-    "location": "Finland",
-    "bio": "I'm the original creator of Linux",
-    "hash": "sha256hash...",
-    "updated_at": "2024-01-15T10:30:00Z"
-  }
-]
-```
+---
 
-## 10. Получить контакт по username
+## 11. Получить контакт по username
 
 ```bash
 curl -X GET http://localhost:3000/contacts/torvalds
 ```
 
-## 11. Удалить репозиторий
+---
+
+## 12. Удалить репозиторий
 
 ```bash
 curl -X DELETE http://localhost:3000/repos/owner/repo
 ```
 
-Ответ:
-```json
-{
-  "message": "repository deleted"
-}
-```
+---
 
-## 12. Получить список всех маршрутов
+## 13. Получить список всех маршрутов
 
 ```bash
 curl -X GET http://localhost:3000/api/routes
 ```
+
+---
+
+## 14. Получить все issues постранично
+
+```bash
+curl -X GET "http://localhost:3000/issues?page=1&limit=50"
+```
+
+---
 
 ## Примеры использования с Python
 
@@ -190,10 +174,9 @@ import json
 
 BASE_URL = "http://localhost:3000"
 
-# Запустить crawler
 def start_crawler():
     payload = {
-        "start_username": "torvalds",
+        "start_usernames": ["torvalds"],
         "max_iterations": 5000,
         "delay_ms": 1000,
         "github_token": "your_token"
@@ -201,40 +184,32 @@ def start_crawler():
     response = requests.post(f"{BASE_URL}/crawler/start", json=payload)
     print(json.dumps(response.json(), indent=2))
 
-# Получить статистику
 def get_stats():
     response = requests.get(f"{BASE_URL}/stats")
     print(json.dumps(response.json(), indent=2))
 
-# Получить репозитории
 def get_repos():
-    response = requests.get(f"{BASE_URL}/repos")
+    response = requests.get(f"{BASE_URL}/repos?expand=true")
     repos = response.json()
     print(f"Found {len(repos)} repositories")
-    for repo in repos[:5]:  # Show first 5
-        print(f"  - {repo['owner']}/{repo['name']} ({repo['stars']} stars)")
+    for repo in repos[:5]:
+        print(f"  - {repo['owner']}/{repo['name']}")
 
-# Получить контакты
 def get_contacts():
     response = requests.get(f"{BASE_URL}/contacts")
     contacts = response.json()
     print(f"Found {len(contacts)} contacts")
     for contact in contacts[:5]:
-        print(f"  - {contact['login']} ({contact['location']})")
+        print(f"  - {contact['login']}")
 
 if __name__ == "__main__":
-    print("=== Starting Crawler ===")
     start_crawler()
-    
-    print("\n=== Statistics ===")
     get_stats()
-    
-    print("\n=== Repositories ===")
     get_repos()
-    
-    print("\n=== Contacts ===")
     get_contacts()
 ```
+
+---
 
 ## Примеры использования с bash/curl
 
@@ -243,61 +218,55 @@ if __name__ == "__main__":
 
 BASE_URL="http://localhost:3000"
 
-# Проверить здоровье
 echo "=== Health Check ==="
 curl -s ${BASE_URL}/health | jq .
 
-# Получить статистику
 echo "=== Statistics ==="
 curl -s ${BASE_URL}/stats | jq .
 
-# Запустить crawler
 echo "=== Starting Crawler ==="
 curl -s -X POST ${BASE_URL}/crawler/start \
   -H "Content-Type: application/json" \
   -d '{
-    "start_username": "torvalds",
+    "start_usernames": ["torvalds"],
     "max_iterations": 5000,
     "delay_ms": 1000
   }' | jq .
 
-# Проверить прогресс (повторяйте несколько раз)
 echo "=== Checking Progress ==="
-sleep 10
+sleep 5
 curl -s ${BASE_URL}/stats | jq .
 
-# Получить top репозитории
 echo "=== Top Repositories ==="
-curl -s "${BASE_URL}/repos/search?language=C&min_stars=1000" | jq '.[0:5]'
+curl -s "${BASE_URL}/repos/search?language=C" | jq '.[0:5]'
 
-# Получить контакты
 echo "=== Contacts ==="
 curl -s ${BASE_URL}/contacts | jq '.[0:5]'
 ```
 
+---
+
 ## Важные замечания
 
-1. **Rate Limiting**: GitHub API имеет лимиты на количество запросов. Используйте `delay_ms` и GitHub токен для оптимизации.
+1. **Rate Limiting**: GitHub API имеет лимиты на количество запросов. Используйте `delay_ms` и GitHub токен.
+2. **GitHub Token**: Получить токен можно на https://github.com/settings/tokens (scopes: `public_repo`, `read:user`).
+3. **Crawler Progress**: краулер работает асинхронно, проверяйте `/stats`.
+4. **Deduplication**: дубликаты автоматически отбрасываются по хешам.
+5. **Storage**: данные хранятся в `./badger_data/`.
 
-2. **GitHub Token**: Получить токен можно на странице https://github.com/settings/tokens
-   - Требуется scopes: `public_repo`, `read:user`
-
-3. **Crawler Progress**: Crawler работает асинхронно. Проверяйте статистику чтобы увидеть прогресс.
-
-4. **Deduplication**: Система автоматически не добавляет дубликаты базываясь на хешах.
-
-5. **Storage**: Данные хранятся в `./badger_data/` локально на диске.
+---
 
 ## Мониторинг процесса крауллинга
 
 ```bash
-# Монитор в реальном времени (обновляется каждые 5 секунд)
 watch -n 5 'curl -s http://localhost:3000/stats | jq .'
 
-# Или с jq для красивого вывода
 while true; do
   echo "=== $(date) ==="
   curl -s http://localhost:3000/stats | jq .
   sleep 5
 done
 ```
+```
+
+Теперь `EXAMPLES.md` полностью соответствует твоему актуальному API.

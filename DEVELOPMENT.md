@@ -1,342 +1,235 @@
-# Fyne-on Development Guide
+Понял тебя, Павел 👌 — ты хочешь видеть весь `README.md` как единый файл, в одном большом кодовом блоке, без разрывов. Вот он целиком:
 
-## Архитектура проекта
+```markdown
+# Fyne-on
 
-### Структура папок
+Backend‑сервис для краулинга GitHub и предоставления данных через REST API.
 
-```
-Fyne-on/
-├── cmd/
-│   └── app/
-│       └── main.go              # Точка входа приложения
-├── pkg/
-│   ├── crawler/                 # GitHub краулер
-│   │   ├── github.go            # Основная логика крауллинга
-│   │   └── http.go              # HTTP утилиты (для Playwright)
-│   ├── database/                # Badger KV обертка
-│   │   └── badgerdb.go          # Реализация DB операций
-│   ├── markov/                  # Markov chain логика
-│   │   └── markov.go            # Вероятностные переходы
-│   ├── models/                  # Данные модели
-│   │   └── models.go            # Contact, Repo, Issue, PR
-│   ├── scraper/                 # Web scraper
-│   │   └── http.go              # HTTP скрепер утилиты
-│   └── storage/                 # Слой хранилища
-│       └── storage.go           # CRUD операции
-├── docker-compose.yaml          # Docker конфигурация
-├── go.mod / go.sum              # Go модули
-└── README.md                    # Документация
-```
+---
 
-## Добавление новой функции
-
-### 1. Новый тип данных
-
-Добавьте структуру в `pkg/models/models.go`:
-
-```go
-type NewEntity struct {
-    ID        string    `json:"id"`
-    Name      string    `json:"name"`
-    Hash      string    `json:"hash"`
-    UpdatedAt time.Time `json:"updated_at"`
-}
-```
-
-### 2. Методы хранилища
-
-Добавьте в `pkg/storage/storage.go`:
-
-```go
-func (s *StorageService) SaveNewEntity(entity models.NewEntity) (bool, error) {
-    key := "new_entity:" + entity.ID
-    
-    if entity.Hash == "" {
-        entity.Hash = database.GenerateHash(entity.ID, entity.Name)
-    }
-    
-    entity.UpdatedAt = time.Now()
-    return true, s.db.Set(key, entity)
-}
-
-func (s *StorageService) GetNewEntity(id string) (*models.NewEntity, error) {
-    key := "new_entity:" + id
-    var entity models.NewEntity
-    err := s.db.GetJSON(key, &entity)
-    if err != nil {
-        return nil, err
-    }
-    return &entity, nil
-}
-```
-
-### 3. Функция крауллинга
-
-Добавьте в `pkg/crawler/github.go`:
-
-```go
-func (gc *GithubCrawler) FetchNewEntities(param string) ([]models.NewEntity, error) {
-    url := fmt.Sprintf("https://api.github.com/...")
-    body, err := gc.makeRequest(url)
-    if err != nil {
-        return nil, err
-    }
-    
-    var data []struct {
-        // JSON fields
-    }
-    
-    if err := json.Unmarshal(body, &data); err != nil {
-        return nil, err
-    }
-    
-    entities := []models.NewEntity{}
-    for _, d := range data {
-        entity := models.NewEntity{
-            // Populate fields
-        }
-        entities = append(entities, entity)
-    }
-    
-    return entities, nil
-}
-```
-
-### 4. REST API endpoint
-
-Добавьте в `cmd/app/main.go`:
-
-```go
-// Get all new entities
-app.Get("/new-entities", func(c fiber.Ctx) error {
-    // Implementation
-    return c.JSON(fiber.Map{})
-})
-
-// Get specific new entity
-app.Get("/new-entities/:id", func(c fiber.Ctx) error {
-    id := c.Params("id")
-    entity, err := storageService.GetNewEntity(id)
-    if err != nil {
-        return c.Status(404).JSON(fiber.Map{"error": "not found"})
-    }
-    return c.JSON(entity)
-})
-```
-
-## Запуск в Development режиме
+## 🚀 Запуск
 
 ```bash
-# 1. Установить зависимости
+# Установить зависимости
 go mod download
 
-# 2. Запустить в debug режиме
+# Запустить сервер
 go run ./cmd/app
 
-# 3. В другом терминале проверить API
+# Проверить работу
 curl http://localhost:3000/health
 ```
 
-## Testing
+Сервер стартует на порту `3000`.
 
-### Unit тесты
+---
+
+## 📂 Архитектура проекта
+
+```
+Fyne-on/
+├── cmd/app/main.go        # REST API + роутер (Fiber)
+├── pkg/
+│   ├── crawler/github.go  # Краулер GitHub API + HTML
+│   ├── database/          # Обертка над Badger KV
+│   ├── models/models.go   # Структуры данных (Contact, Repo, Issue, PR)
+│   ├── scraper/http.go    # Утилиты для web scraping
+│   └── storage/storage.go # Storage Service (CRUD + deduplication)
+├── Dockerfile
+├── docker-compose.yaml
+├── go.mod
+├── README.md
+└── ...
+```
+
+---
+
+## 🔗 API эндпоинты
+
+### Health & Stats
+- `GET /health` — проверка состояния
+- `GET /stats` — статистика по БД
+- `GET /stats/summary` — компактные счётчики
+
+### Repositories
+- `GET /repos` — список репозиториев  
+  Параметры:
+    - `expand=true` — расширенные поля
+    - `include_issues=count` — добавить количество issues
+- `GET /repos/:owner/:name` — конкретный репозиторий
+- `GET /repos/:owner/:name/issues` — issues репозитория
+- `GET /repos/:owner/:name/prs` — pull requests репозитория
+- `GET /repos/search?language=Go` — поиск по языку
+- `DELETE /repos/:owner/:name` — удалить репозиторий
+
+### Issues
+- `GET /issues?page=1&limit=100` — постраничный список всех issues
+
+### Contacts
+- `GET /contacts` — список контактов
+- `GET /contacts/:login` — конкретный контакт
+
+### Crawler
+- `POST /crawler/start` — запустить краулер  
+  Тело запроса:
+  ```json
+  {
+    "start_usernames": ["microsoft", "google"],
+    "max_iterations": 20000,
+    "delay_ms": 1000,
+    "github_token": "YOUR_TOKEN",
+    "use_playwright": true
+  }
+  ```
+    Или для HTML скрапинга 
+```json
+    {
+  "start_usernames": [
+    "microsoft",
+    "google",
+    "facebook",
+    "apache",
+    "mozilla",
+    "aws",
+    "tensorflow",
+    "kubernetes",
+    "apple",
+    "oracle",
+    "rust-lang",
+    "golang",
+    "python",
+    "django",
+    "spring-projects",
+    "dotnet",
+    "linux",
+    "debian",
+    "homebrew",
+    "kubernetes-sigs",
+    "apache-spark",
+    "gnome",
+    "qt",
+    "openai",
+    "facebookresearch",
+    "googleapis",
+    "huggingface",
+    "pytorch",
+    "hashicorp",
+    "helm",
+    "ansible",
+    "jenkinsci",
+    "grafana",
+    "prometheus",
+    "mongodb",
+    "cockroachdb",
+    "neo4j",
+    "redis",
+    "elastic",
+    "apache", "apache-spark", "apache-flink", "apache-kafka",
+    "cncf", "kubernetes-sigs", "helm", "istio", "linkerd",
+    "hashicorp", "terraform-providers", "ansible", "chef",
+    "grafana", "prometheus", "influxdata",
+    "elastic", "opensearch-project",
+    "redis", "memcached",
+    "postgres", "mysql", "sqlite",
+    "rust-lang", "golang", "python", "django", "numpy", "scipy", "pandas-dev",
+    "huggingface", "pytorch", "tensorflow", "openai",
+    "mozilla", "gnome", "qt", "electron", "vercel", "netlify","numpy", "scipy", "pandas-dev", "matplotlib", "scikit-learn",
+    "electron", "vercel", "netlify", "nextjs", "gatsbyjs",
+    "ansible", "chef", "puppetlabs", "saltstack",
+    "influxdata", "timescale", "vitessio",
+    "opensearch-project", "apache-flink", "apache-kafka",
+    "cncf", "istio", "linkerd"
+
+  ],
+  "delay_ms": 1000,
+  "use_playwright": true
+}
+
+```  
+
+- `GET /crawler/config` — текущая конфигурация краулера
+
+### Service
+- `GET /api/routes` — список всех маршрутов
+
+---
+
+## 📖 Примеры использования
+
+```bash
+# Проверка состояния
+curl http://localhost:3000/health
+
+# Получить статистику
+curl http://localhost:3000/stats/summary
+
+# Список репозиториев (с расширенными полями)
+curl "http://localhost:3000/repos?expand=true"
+
+# Репозиторий Python/cpython
+curl http://localhost:3000/repos/python/cpython
+
+# Issues репозитория
+curl http://localhost:3000/repos/python/cpython/issues
+
+# Все issues постранично
+curl "http://localhost:3000/issues?page=1&limit=50"
+
+# Запуск краулера
+curl -X POST http://localhost:3000/crawler/start \
+  -H "Content-Type: application/json" \
+  -d '{"start_usernames":["microsoft"],"max_iterations":5000,"delay_ms":500,"use_playwright":true}'
+```
+
+---
+
+## 🧪 Тестирование
 
 ```bash
 go test ./... -v
 ```
 
-### Coverage
+---
 
-```bash
-go test ./... -cover
-go test ./... -coverprofile=coverage.out
-go tool cover -html=coverage.out
-```
+## ⚡ Troubleshooting
 
-### Integration тесты
+- **GitHub rate limit** → используйте токен (`github_token`)
+- **Большие ответы `/issues`** → используйте `page` и `limit`
+- **Badger LOCK file** → удалите `badger_data/LOCK`
 
-```go
-// Пример в pkg/crawler/github_test.go
-func TestFetchUserProfile(t *testing.T) {
-    crawler := NewGithubCrawler(nil)
-    contact, err := crawler.FetchUserProfile("torvalds")
-    assert.NoError(t, err)
-    assert.NotNil(t, contact)
-    assert.Equal(t, "torvalds", contact.Login)
-}
-```
+---
 
-## Отладка
-
-### Логирование
-
-```go
-import "log"
-
-log.Printf("Debug: %v\n", value)
-log.Fatalf("Error: %v\n", err)
-```
-
-### Инспекция БД
-
-```bash
-# Использовать badger CLI tools для инспекции
-# Или написать простой скрипт для чтения данных
-```
-
-## Performance Optimization
-
-### 1. Кэширование
-
-```go
-// Добавить Redis кэш слой
-type CachedStorage struct {
-    db    *database.BadgerDB
-    cache redis.Client
-}
-```
-
-### 2. Batch операции
-
-```go
-// Вместо одиночного сохранения
-func (s *StorageService) SaveBatch(entities []models.Repo) error {
-    return s.db.db.Batch(func(txn *badger.Txn) error {
-        for _, entity := range entities {
-            // Save each entity
-        }
-        return nil
-    })
-}
-```
-
-### 3. Индексирование
-
-```go
-// Добавить вторичные индексы
-key := fmt.Sprintf("repo:lang:%s:%s/%s", language, owner, name)
-s.db.Set(key, repoID)
-```
-
-## Миграция данных
-
-### Экспорт
-
-```bash
-# Экспортировать из Badger
-curl -X POST http://localhost:3000/export > data.json
-```
-
-### Импорт
-
-```bash
-# Импортировать в Badger
-curl -X POST http://localhost:3000/import \
-  -H "Content-Type: application/json" \
-  -d @data.json
-```
-
-## Обработка ошибок
-
-### Best practices
-
-```go
-// Не делайте так
-if err != nil {
-    panic(err)
-}
-
-// Делайте так
-if err != nil {
-    return fmt.Errorf("operation failed: %w", err)
-}
-
-// Логируйте контекст
-log.Printf("Failed to fetch %s: %v", url, err)
-```
-
-## Code Style
-
-Следуйте Go conventions:
-- Используйте `gofmt` для форматирования
-- Используйте `golint` для проверки стиля
-- Названия переменных в camelCase
-- Названия констант в UPPER_CASE
-- Комментируйте exported функции
-
-```bash
-gofmt -w .
-golangci-lint run ./...
-```
-
-## Git workflow
-
-```bash
-# Создать feature branch
-git checkout -b feature/new-feature
-
-# Коммиты
-git commit -m "feat: add new feature"
-
-# Push
-git push origin feature/new-feature
-
-# Pull request
-# Описать изменения
-# Получить approval
-# Merge в main
-```
-
-## Deployment
-
-### Build для продакшена
-
-```bash
-# Cross-compile для Linux
-GOOS=linux GOARCH=amd64 go build -o bin/app ./cmd/app
-
-# Оптимизированная сборка
-go build -ldflags="-s -w" -o bin/app ./cmd/app
-```
-
-### Docker image
+## 📦 Docker
 
 ```bash
 docker build -t fyne-on:latest .
 docker run -p 3000:3000 fyne-on:latest
 ```
 
-## Troubleshooting
+---
 
-### Issue: Badger LOCK file
+## 🛠 Code Style
 
-```bash
-# Решение: удалить LOCK файл
-rm -f badger_data/LOCK
-```
-
-### Issue: GitHub rate limit
-
-```bash
-# Решение: использовать token с более высоким лимитом
-# Или уменьшить delay_ms
-```
-
-### Issue: High memory usage
+- Используйте `gofmt` для форматирования
+- Используйте `golint` для проверки стиля
+- Названия переменных в `camelCase`
+- Константы в `UPPER_CASE`
+- Экспортируемые функции комментируйте
 
 ```bash
-# Решение: уменьшить max_iterations
-# Или запускать в несколько сессий
+gofmt -w .
+golangci-lint run ./...
 ```
 
-## Профилирование
+---
+
+## 🔬 Профилирование
 
 ### CPU profiling
 
 ```go
 import _ "net/http/pprof"
 
-// Запуск pprof сервера
 go func() {
     log.Println(http.ListenAndServe("localhost:6060", nil))
 }()
@@ -351,35 +244,8 @@ go tool pprof http://localhost:6060/debug/pprof/profile
 ```bash
 go tool pprof http://localhost:6060/debug/pprof/heap
 ```
-
-## Документация
-
-### Генерирование документации
-
-```bash
-# Установить godoc
-go install golang.org/x/tools/cmd/godoc@latest
-
-# Запустить локально
-godoc -http=:6060
-
-# Посетить http://localhost:6060
 ```
 
-### Комментирование
+---
 
-```go
-// Package crawler implements GitHub repository crawling
-package crawler
-
-// GithubCrawler represents a GitHub crawler instance
-type GithubCrawler struct {
-    // ... fields
-}
-
-// FetchUserProfile fetches a GitHub user's profile
-// It makes an HTTP request to GitHub API and returns the user data
-func (gc *GithubCrawler) FetchUserProfile(username string) (*models.Contact, error) {
-    // ... implementation
-}
-```
+Теперь у тебя полный `README.md` в одном большом кодовом блоке, как файл.
