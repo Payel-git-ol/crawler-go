@@ -13,22 +13,18 @@ import (
 )
 
 func main() {
-	// Initialize Badger database
 	db, err := database.InitDB()
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer db.Close()
 
-	// Initialize storage service
 	storageService := storage.NewStorageService(db)
 
-	// Initialize GitHub crawler
 	githubCrawler := crawler.NewGithubCrawler(storageService)
-	githubCrawler.SetMaxIterations(20000)
-	githubCrawler.SetDelayMs(1000)
+	githubCrawler.SetMaxIterations(100)
+	githubCrawler.SetDelayMs(5)
 
-	// ADD: track current crawler config BEFORE usage in handlers
 	currentCrawlerConfig := struct {
 		StartUsername string
 		MaxIterations int
@@ -43,10 +39,8 @@ func main() {
 		UsePlaywright: false,
 	}
 
-	// Create Fiber app
 	app := fiber.New()
 
-	// Health check
 	app.Get("/health", func(c fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"status":  "ok",
@@ -180,7 +174,6 @@ func main() {
 		return c.JSON(issues)
 	})
 
-	// Get repository issues
 	app.Get("/repos/:owner/:name/issues", func(c fiber.Ctx) error {
 		owner := c.Params("owner")
 		name := c.Params("name")
@@ -194,7 +187,6 @@ func main() {
 		return c.JSON(issues)
 	})
 
-	// Get repository pull requests
 	app.Get("/repos/:owner/:name/prs", func(c fiber.Ctx) error {
 		owner := c.Params("owner")
 		name := c.Params("name")
@@ -208,14 +200,12 @@ func main() {
 		return c.JSON(prs)
 	})
 
-	// Get all contacts
 	app.Get("/contacts", func(c fiber.Ctx) error {
 		contacts, err := storageService.GetAllContacts()
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 
-		// Only expose username (login) and hash
 		result := make([]fiber.Map, 0, len(contacts))
 		for _, ct := range contacts {
 			result = append(result, fiber.Map{
@@ -226,7 +216,6 @@ func main() {
 		return c.JSON(result)
 	})
 
-	// Get contact by login
 	app.Get("/contacts/:login", func(c fiber.Ctx) error {
 		login := c.Params("login")
 
@@ -235,21 +224,18 @@ func main() {
 			return c.Status(404).JSON(fiber.Map{"error": "contact not found"})
 		}
 
-		// Only expose username (login) and hash
 		return c.JSON(fiber.Map{
 			"login": contact.Login,
 			"hash":  contact.Hash,
 		})
 	})
 
-	// Start crawler (async)
-	// Запуск краулера с параметрами
 	type CrawlRequest struct {
-		StartUsername string `json:"start_username"`
-		MaxIterations int    `json:"max_iterations"`
-		DelayMs       int    `json:"delay_ms"`
-		GitHubToken   string `json:"github_token"`
-		UsePlaywright bool   `json:"use_playwright"`
+		StartUsernames []string `json:"start_usernames"`
+		MaxIterations  int      `json:"max_iterations"`
+		DelayMs        int      `json:"delay_ms"`
+		GitHubToken    string   `json:"github_token"`
+		UsePlaywright  bool     `json:"use_playwright"`
 	}
 
 	// Start crawler (fixed: manual JSON parsing + use CrawlStart)
@@ -263,7 +249,7 @@ func main() {
 			GitHubToken   string `json:"github_token"`
 			UsePlaywright bool   `json:"use_playwright"`
 		}
-		var req startReq
+		var req CrawlRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			// try alternate key casing used in scripts
 			type altReq struct {
@@ -277,7 +263,7 @@ func main() {
 			if err2 := json.Unmarshal(body, &alt); err2 != nil {
 				return c.Status(400).JSON(fiber.Map{"error": "invalid JSON: " + err.Error()})
 			}
-			req.StartUsername = alt.StartUsername
+			req.StartUsernames = []string{alt.StartUsername}
 			if alt.MaxIter > 0 {
 				req.MaxIterations = alt.MaxIter
 			}
@@ -288,7 +274,6 @@ func main() {
 			req.UsePlaywright = alt.UsePlaywright
 		}
 
-		// Apply crawler settings
 		if req.GitHubToken != "" {
 			githubCrawler.SetGitHubToken(req.GitHubToken)
 			currentCrawlerConfig.TokenSet = true
@@ -303,28 +288,27 @@ func main() {
 		}
 		currentCrawlerConfig.UsePlaywright = req.UsePlaywright
 
-		if req.StartUsername == "" {
-			req.StartUsername = "torvalds"
+		if len(req.StartUsernames) == 0 {
+			req.StartUsernames = []string{"microsoft"}
 		}
-		currentCrawlerConfig.StartUsername = req.StartUsername
 
-		// Run crawler asynchronously (HTML mode to avoid GitHub API rate limits)
-		go func(u string) {
-			if err := githubCrawler.CrawlStartHTML(u); err != nil {
-				log.Printf("Crawler error: %v", err)
-			}
-		}(req.StartUsername)
+		for _, user := range req.StartUsernames {
+			go func(u string) {
+				if err := githubCrawler.CrawlStart(u); err != nil {
+					log.Printf("Crawler error for %s: %v", u, err)
+				}
+			}(user)
+		}
 
 		return c.JSON(fiber.Map{
-			"message":        "Crawler started (HTML mode)",
-			"start_username": req.StartUsername,
+			"message":        "Crawler started (API mode)",
+			"start_username": req.StartUsernames,
 			"max_iterations": currentCrawlerConfig.MaxIterations,
 			"delay_ms":       currentCrawlerConfig.DelayMs,
 			"use_playwright": currentCrawlerConfig.UsePlaywright,
 		})
 	})
 
-	// Query repositories (filter by language, stars, etc.)
 	app.Get("/repos/search", func(c fiber.Ctx) error {
 		language := c.Query("language")
 
@@ -338,7 +322,6 @@ func main() {
 			if language != "" && repo.Language != language {
 				continue
 			}
-			// Sanitize repo output: only hash/owner/name/language
 			hash := repo.Hash
 			if hash == "" {
 				h := sha256.Sum256([]byte(repo.Owner + "/" + repo.Name))
@@ -355,7 +338,6 @@ func main() {
 		return c.JSON(filtered)
 	})
 
-	// Delete repository (cascade delete issues and PRs)
 	app.Delete("/repos/:owner/:name", func(c fiber.Ctx) error {
 		owner := c.Params("owner")
 		name := c.Params("name")
@@ -367,7 +349,6 @@ func main() {
 		return c.JSON(fiber.Map{"message": "repository deleted"})
 	})
 
-	// INSERT: endpoints that were only present in the removed duplicate block
 	app.Get("/crawler/config", func(c fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"start_username": currentCrawlerConfig.StartUsername,
@@ -398,7 +379,6 @@ func main() {
 		return c.JSON(routes)
 	})
 
-	// Start server
 	port := ":3000"
 	log.Printf("Server started on %s", port)
 	if err := app.Listen(port); err != nil {

@@ -11,18 +11,15 @@ type PlaywrightScraper struct {
 }
 
 func NewPlaywrightScraper(ctx context.Context) (*PlaywrightScraper, error) {
-	// Инициализация Playwright
 	if err := pw.Install(&pw.RunOptions{Verbose: false}); err != nil {
 		return nil, err
 	}
 	return &PlaywrightScraper{ctx: ctx}, nil
 }
 
-// Пример: получить список логинов разработчиков со страницы Trending Developers
 func (ps *PlaywrightScraper) FetchTrendingDevelopers() ([]string, error) {
 	out := []string{}
 
-	// FIX: pw.Run expects *pw.RunOptions (or no args), not context.Context
 	pwInst, err := pw.Run()
 	if err != nil {
 		return out, err
@@ -44,14 +41,12 @@ func (ps *PlaywrightScraper) FetchTrendingDevelopers() ([]string, error) {
 		return out, err
 	}
 
-	// На странице у GitHub разметка может меняться; селектор приблизительный
 	els, err := page.QuerySelectorAll("article h1 a[href*='/']")
 	if err != nil {
 		return out, err
 	}
 	for _, el := range els {
 		href, _ := el.GetAttribute("href")
-		// href вида: /{login}
 		if href != "" && len(href) > 1 {
 			out = append(out, href[1:])
 		}

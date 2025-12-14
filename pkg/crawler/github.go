@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"Fyne-on/pkg/markov"
@@ -19,43 +21,34 @@ type GithubCrawler struct {
 	client        *http.Client
 	maxIterations int
 	delayMs       int
-	token         string // GitHub API token (optional, for higher rate limits)
-
-	// Added fields to fix compilation
+	token         string
 	markovChain   *markov.MarkovChain
 	usePlaywright bool
-
-	// NEW: HTML scraper
-	htmlScraper *scraper.HTTPScraper
+	htmlScraper   *scraper.HTTPScraper
 }
 
-// NewGithubCrawler creates a new GitHub crawler
 func NewGithubCrawler(storage *storage.StorageService) *GithubCrawler {
 	return &GithubCrawler{
 		storage:       storage,
 		visited:       make(map[string]bool),
 		client:        &http.Client{Timeout: 15 * time.Second},
-		maxIterations: 20000, // повышаем дефолт
+		maxIterations: 20000,
 		delayMs:       1000,
 		markovChain:   markov.NewMarkovChain(0),
-		// usePlaywright defaults to false
-		htmlScraper: scraper.NewHTTPScraper(15),
+		htmlScraper:   scraper.NewHTTPScraper(15),
 	}
 }
 
-// SetGitHubToken sets GitHub API token for higher rate limits
 func (gc *GithubCrawler) SetGitHubToken(token string) {
 	gc.token = token
 }
 
-// SetMaxIterations sets maximum iterations
 func (gc *GithubCrawler) SetMaxIterations(n int) {
 	if n > 0 {
 		gc.maxIterations = n
 	}
 }
 
-// SetDelayMs sets delay between requests in milliseconds
 func (gc *GithubCrawler) SetDelayMs(ms int) {
 	if ms >= 0 {
 		gc.delayMs = ms
@@ -66,35 +59,62 @@ func (gc *GithubCrawler) UsePlaywright(v bool) {
 	gc.usePlaywright = v
 }
 
-// makeRequest makes an HTTP request with proper headers
 func (gc *GithubCrawler) makeRequest(url string) ([]byte, error) {
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("User-Agent", "Fyne-on-Crawler/1.0")
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	maxRetries := 5
+	retryDelay := time.Second * 5
 
-	if gc.token != "" {
-		req.Header.Set("Authorization", "token "+gc.token)
+	for i := 0; i < maxRetries; i++ {
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("User-Agent", "Fyne-on-Crawler/1.0")
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+		if gc.token != "" {
+			req.Header.Set("Authorization", "token "+gc.token)
+		}
+
+		resp, err := gc.client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("request failed: %w", err)
+		}
+
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+			remaining := resp.Header.Get("X-RateLimit-Remaining")
+			resetTime := resp.Header.Get("X-RateLimit-Reset")
+
+			if remaining == "0" && resetTime != "" {
+				resetUnix, _ := strconv.ParseInt(resetTime, 10, 64)
+				sleepDuration := time.Until(time.Unix(resetUnix, 0)) + time.Second
+
+				log.Printf("Rate limit hit. Sleeping for %v...", sleepDuration)
+				resp.Body.Close()
+				time.Sleep(sleepDuration)
+				continue
+			}
+
+			log.Printf("Abuse detection mechanism triggered. Retrying in %v...", retryDelay)
+			resp.Body.Close()
+			time.Sleep(retryDelay)
+			retryDelay *= 2
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("status code: %d", resp.StatusCode)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		return body, nil
 	}
 
-	resp, err := gc.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status code: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return body, nil
+	return nil, fmt.Errorf("max retries exceeded for url: %s", url)
 }
 
-// FetchUserProfile fetches GitHub user profile
 func (gc *GithubCrawler) FetchUserProfile(username string) (*models.Contact, error) {
 	url := fmt.Sprintf("https://api.github.com/users/%s", username)
 
@@ -133,12 +153,11 @@ func (gc *GithubCrawler) FetchUserProfile(username string) (*models.Contact, err
 	return &contact, nil
 }
 
-// FetchUserStarredRepos fetches starred repositories
 func (gc *GithubCrawler) FetchUserStarredRepos(username string) ([]models.Repo, error) {
 	repos := []models.Repo{}
 	page := 1
 
-	for page <= 3 { // Limit to 3 pages (300 repos)
+	for page <= 3 {
 		url := fmt.Sprintf("https://api.github.com/users/%s/starred?per_page=100&page=%d", username, page)
 
 		body, err := gc.makeRequest(url)
@@ -180,7 +199,7 @@ func (gc *GithubCrawler) FetchUserStarredRepos(username string) ([]models.Repo, 
 				License:     rd.License.Key,
 				UpdatedAt:   time.Now(),
 			}
-			// no change here; errors logged in CrawlStart below
+
 			repos = append(repos, repo)
 		}
 
@@ -191,12 +210,11 @@ func (gc *GithubCrawler) FetchUserStarredRepos(username string) ([]models.Repo, 
 	return repos, nil
 }
 
-// FetchRepositoryContributors fetches repository contributors
 func (gc *GithubCrawler) FetchRepositoryContributors(owner, repo string) ([]models.Contact, error) {
 	contacts := []models.Contact{}
 	page := 1
 
-	for page <= 2 { // Limit to 2 pages
+	for page <= 2 {
 		url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contributors?per_page=100&page=%d", owner, repo, page)
 
 		body, err := gc.makeRequest(url)
@@ -238,19 +256,19 @@ func (gc *GithubCrawler) FetchRepositoryContributors(owner, repo string) ([]mode
 	return contacts, nil
 }
 
-// FetchRepositoryIssues fetches repository issues
-func (gc *GithubCrawler) FetchRepositoryIssues(owner, repo string) ([]models.Issue, error) {
-	issues := []models.Issue{}
+func (gc *GithubCrawler) FetchRepositoryIssues(owner, repo string, saveFunc func(models.Issue) error) error {
 	states := []string{"open", "closed"}
 
 	for _, state := range states {
-		page := 1
-		for page <= 2 { // Limit to 2 pages per state
+		for page := 1; ; page++ {
 			url := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues?state=%s&per_page=100&page=%d", owner, repo, state, page)
+			log.Printf("  Fetching %s issues page %d for %s/%s", state, page, owner, repo)
 
 			body, err := gc.makeRequest(url)
+
 			if err != nil {
-				break
+				log.Printf("Error fetching issues page %d for %s/%s (state: %s): %v", page, owner, repo, state, err)
+				return err
 			}
 
 			var issuesData []struct {
@@ -264,17 +282,24 @@ func (gc *GithubCrawler) FetchRepositoryIssues(owner, repo string) ([]models.Iss
 				} `json:"user"`
 				CreatedAt time.Time `json:"created_at"`
 				UpdatedAt time.Time `json:"updated_at"`
+				PullReq   *struct{} `json:"pull_request,omitempty"`
 			}
 
 			if err := json.Unmarshal(body, &issuesData); err != nil {
-				break
+				log.Printf("Error unmarshaling issues data for %s/%s: %v", owner, repo, err)
+				return err
 			}
 
 			if len(issuesData) == 0 {
 				break
 			}
 
+			count := 0
 			for _, id := range issuesData {
+				if id.PullReq != nil {
+					continue
+				}
+
 				issue := models.Issue{
 					ID:        fmt.Sprintf("%d", id.ID),
 					RepoID:    owner + "/" + repo,
@@ -286,25 +311,41 @@ func (gc *GithubCrawler) FetchRepositoryIssues(owner, repo string) ([]models.Iss
 					CreatedAt: id.CreatedAt,
 					UpdatedAt: id.UpdatedAt,
 				}
-				issues = append(issues, issue)
+
+				if err := saveFunc(issue); err != nil {
+					log.Printf("Failed to save issue %s: %v", issue.ID, err)
+				}
+
+				if err := json.Unmarshal(body, &issuesData); err != nil {
+					log.Printf("Error unmarshaling issues data for %s/%s: %v\nBody: %s", owner, repo, err, string(body))
+					return err
+				}
+
+				if len(issuesData) == 0 {
+					log.Printf("No issues returned for %s/%s (state: %s, page: %d). Body: %s", owner, repo, state, page, string(body))
+					break
+				}
+
+				count++
 			}
 
-			page++
-			time.Sleep(time.Duration(gc.delayMs) * time.Millisecond)
+			log.Printf("  Saved %d issues from page %d (state: %s)", count, page, state)
+
+			if gc.delayMs > 0 {
+				time.Sleep(time.Duration(gc.delayMs) * time.Millisecond)
+			}
 		}
 	}
 
-	return issues, nil
+	return nil
 }
 
-// FetchRepositoryPRs fetches repository pull requests
 func (gc *GithubCrawler) FetchRepositoryPRs(owner, repo string) ([]models.PullRequest, error) {
 	prs := []models.PullRequest{}
 	states := []string{"open", "closed"}
 
 	for _, state := range states {
-		page := 1
-		for page <= 2 { // Limit to 2 pages per state
+		for page := 1; ; page++ {
 			url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls?state=%s&per_page=100&page=%d", owner, repo, state, page)
 
 			body, err := gc.makeRequest(url)
@@ -328,7 +369,6 @@ func (gc *GithubCrawler) FetchRepositoryPRs(owner, repo string) ([]models.PullRe
 			if err := json.Unmarshal(body, &prsData); err != nil {
 				break
 			}
-
 			if len(prsData) == 0 {
 				break
 			}
@@ -348,7 +388,6 @@ func (gc *GithubCrawler) FetchRepositoryPRs(owner, repo string) ([]models.PullRe
 				prs = append(prs, pullReq)
 			}
 
-			page++
 			time.Sleep(time.Duration(gc.delayMs) * time.Millisecond)
 		}
 	}
@@ -356,9 +395,55 @@ func (gc *GithubCrawler) FetchRepositoryPRs(owner, repo string) ([]models.PullRe
 	return prs, nil
 }
 
-// GetTrendingDevelopers fetches trending developers (using search API as alternative)
+func (gc *GithubCrawler) FetchUserRepos(username string) ([]models.Repo, error) {
+	repos := []models.Repo{}
+	page := 1
+	for {
+		url := fmt.Sprintf("https://api.github.com/users/%s/repos?per_page=100&page=%d", username, page)
+		body, err := gc.makeRequest(url)
+		if err != nil {
+			break
+		}
+		var reposData []struct {
+			Name  string `json:"name"`
+			Owner struct {
+				Login string `json:"login"`
+			} `json:"owner"`
+			HTMLURL     string `json:"html_url"`
+			Description string `json:"description"`
+			Stars       int    `json:"stargazers_count"`
+			Language    string `json:"language"`
+			License     struct {
+				Key string `json:"key"`
+			} `json:"license"`
+		}
+		if err := json.Unmarshal(body, &reposData); err != nil {
+			break
+		}
+		if len(reposData) == 0 {
+			break
+		}
+		for _, rd := range reposData {
+			repo := models.Repo{
+				ID:          rd.Owner.Login + "/" + rd.Name,
+				Name:        rd.Name,
+				Owner:       rd.Owner.Login,
+				URL:         rd.HTMLURL,
+				Description: rd.Description,
+				Stars:       rd.Stars,
+				Language:    rd.Language,
+				License:     rd.License.Key,
+				UpdatedAt:   time.Now(),
+			}
+			repos = append(repos, repo)
+		}
+		page++
+		time.Sleep(time.Duration(gc.delayMs) * time.Millisecond)
+	}
+	return repos, nil
+}
+
 func (gc *GithubCrawler) GetTrendingDevelopers(language string) ([]string, error) {
-	// Use search API to find popular users
 	developers := []string{}
 
 	url := fmt.Sprintf("https://api.github.com/search/users?q=followers:%%3E10&sort=followers&per_page=30")
@@ -388,7 +473,6 @@ func (gc *GithubCrawler) GetTrendingDevelopers(language string) ([]string, error
 	return developers, nil
 }
 
-// CrawlStart initiates crawling from start URL (developer username or trending)
 func (gc *GithubCrawler) CrawlStart(startUsername string) error {
 	visited := make(map[string]bool)
 	queue := []string{startUsername}
@@ -404,48 +488,45 @@ func (gc *GithubCrawler) CrawlStart(startUsername string) error {
 		visited[username] = true
 		iteration++
 
-		fmt.Printf("Crawling: %s (iteration %d)\n", username, iteration)
+		log.Printf("Crawling: %s (iteration %d)\n", username, iteration)
 
-		// Fetch user profile
 		contact, err := gc.FetchUserProfile(username)
 		if err == nil {
 			gc.storage.SaveContact(*contact)
 		}
 
-		// Fetch starred repositories
-		repos, err := gc.FetchUserStarredRepos(username)
+		repos, err := gc.FetchUserRepos(username)
 		if err == nil {
 			for _, repo := range repos {
-				// CHANGED: capture and log errors from SaveRepo
-				isNew, saveErr := gc.storage.SaveRepo(repo)
+				_, saveErr := gc.storage.SaveRepo(repo)
 				if saveErr != nil {
-					fmt.Printf("  SaveRepo failed for %s: %v\n", repo.ID, saveErr)
+					log.Printf("  SaveRepo failed for %s: %v\n", repo.ID, saveErr)
 					continue
 				}
-				if isNew {
-					fmt.Printf("  New repo: %s/%s\n", repo.Owner, repo.Name)
 
-					// Fetch issues
-					issues, _ := gc.FetchRepositoryIssues(repo.Owner, repo.Name)
-					for _, issue := range issues {
-						gc.storage.SaveIssue(issue)
-					}
+				repoID := repo.Owner + "/" + repo.Name
+				log.Printf("  Processing repo: %s\n", repoID)
 
-					// Fetch PRs
-					prs, _ := gc.FetchRepositoryPRs(repo.Owner, repo.Name)
-					for _, pr := range prs {
-						gc.storage.SavePullRequest(pr)
-					}
+				issueErr := gc.FetchRepositoryIssues(repo.Owner, repo.Name, func(issue models.Issue) error {
+					_, err := gc.storage.SaveIssue(issue)
+					return err
+				})
 
-					// Fetch contributors and add to queue
-					contributors, _ := gc.FetchRepositoryContributors(repo.Owner, repo.Name)
-					for _, contrib := range contributors {
-						gc.storage.SaveContact(contrib)
+				if issueErr != nil {
+					log.Printf("  Error processing issues for %s: %v", repoID, issueErr)
+				}
 
-						// Add to queue for further crawling (limit queue to prevent explosion)
-						if len(queue) < 100 && !visited[contrib.Login] {
-							queue = append(queue, contrib.Login)
-						}
+				prs, _ := gc.FetchRepositoryPRs(repo.Owner, repo.Name)
+				for _, pr := range prs {
+					gc.storage.SavePullRequest(pr)
+				}
+
+				contributors, _ := gc.FetchRepositoryContributors(repo.Owner, repo.Name)
+				for _, contrib := range contributors {
+					gc.storage.SaveContact(contrib)
+
+					if len(queue) < 100 && !visited[contrib.Login] {
+						queue = append(queue, contrib.Login)
 					}
 				}
 			}
@@ -454,18 +535,14 @@ func (gc *GithubCrawler) CrawlStart(startUsername string) error {
 		time.Sleep(time.Duration(gc.delayMs) * time.Millisecond)
 	}
 
-	fmt.Printf("Crawling completed. Processed %d users\n", iteration)
+	log.Printf("Crawling completed. Processed %d users\n", iteration)
 	return nil
 }
 
-// GetVisitedCount returns number of visited URLs
 func (gc *GithubCrawler) GetVisitedCount() int {
 	return len(gc.visited)
 }
 
-// CrawlStart performs HTML-based crawling starting from a username.
-// It scrapes trending developers when start is empty, then user repos via HTML.
-// RENAMED: avoid duplicate declaration with API-based CrawlStart
 func (gc *GithubCrawler) CrawlStartHTML(startUsername string) error {
 	iter := 0
 
@@ -490,10 +567,8 @@ func (gc *GithubCrawler) CrawlStartHTML(startUsername string) error {
 		}
 		gc.visited[current] = true
 
-		// Scrape user's repositories via HTML
 		userRepos, err := gc.htmlScraper.FetchUserRepos(current)
 		if err != nil {
-			// continue to next user on failure
 			if gc.delayMs > 0 {
 				time.Sleep(time.Duration(gc.delayMs) * time.Millisecond)
 			}
@@ -508,18 +583,14 @@ func (gc *GithubCrawler) CrawlStartHTML(startUsername string) error {
 				Description: r.Description,
 				Language:    r.Language,
 				Stars:       r.Stars,
-				// ADD: Ensure HTML-scraped repos have ID and UpdatedAt for stats
-				ID: r.Owner + "/" + r.Name,
-				// CHANGED: include CreatedAt; some storage/stats require it
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
+				ID:          r.Owner + "/" + r.Name,
+				CreatedAt:   time.Now(),
+				UpdatedAt:   time.Now(),
 			}
 
-			// CHANGED: capture and log SaveRepo errors
 			isNew, saveErr := gc.storage.SaveRepo(repo)
 			if saveErr != nil {
 				fmt.Printf("  SaveRepo failed for %s: %v\n", repo.ID, saveErr)
-				// continue to next repo if storage rejected this one
 				iter++
 				if gc.delayMs > 0 {
 					time.Sleep(time.Duration(gc.delayMs) * time.Millisecond)
@@ -533,7 +604,6 @@ func (gc *GithubCrawler) CrawlStartHTML(startUsername string) error {
 				fmt.Printf("  New repo (HTML): %s\n", repo.ID)
 			}
 
-			// Basic Markov transition from user to repo
 			gc.markovChain.AddTransition(current, r.Owner+"/"+r.Name)
 
 			iter++

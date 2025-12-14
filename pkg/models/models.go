@@ -47,6 +47,7 @@ type Issue struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Hash      string    `json:"hash"`
+	Responses string    `json:"responses"`
 }
 
 // PullRequest represents a GitHub PR
