@@ -3,15 +3,38 @@ package main
 import (
 	"Fyne-on/pkg/crawler"
 	"Fyne-on/pkg/database"
+	"Fyne-on/pkg/models"
 	"Fyne-on/pkg/storage"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v3"
 )
+
+func getLatestJobDate(jobs []models.TelegramJob) string {
+	if len(jobs) == 0 {
+		return "N/A"
+	}
+	latest := jobs[0].Timestamp
+	for _, job := range jobs {
+		if job.Timestamp.After(latest) {
+			latest = job.Timestamp
+		}
+	}
+	return latest.Format("2006-01-02 15:04:05")
+}
+
+func getAveragePayment(jobs []models.TelegramJob) string {
+	if len(jobs) == 0 {
+		return "N/A"
+	}
+	return "Рассчитывается"
+}
 
 func main() {
 	db, err := database.InitDB()
@@ -25,6 +48,8 @@ func main() {
 	githubCrawler := crawler.NewGithubCrawler(storageService)
 	githubCrawler.SetMaxIterations(100)
 	githubCrawler.SetDelayMs(5)
+
+	telegramJobCrawler := crawler.NewTelegramJobCrawler(storageService)
 
 	currentCrawlerConfig := struct {
 		StartUsername string
@@ -49,13 +74,11 @@ func main() {
 		})
 	})
 
-	// Get statistics (existing)
 	app.Get("/stats", func(c fiber.Ctx) error {
 		stats := storageService.GetStats()
 		return c.JSON(stats)
 	})
 
-	// Add: compact JSON summary counts you requested
 	app.Get("/stats/summary", func(c fiber.Ctx) error {
 		summary, err := storageService.GetCounts()
 		if err != nil {
@@ -66,12 +89,10 @@ func main() {
 		return c.JSON(summary)
 	})
 
-	// Get all repositories (add optional issues_count via ?include_issues=count|true|1)
 	app.Get("/repos", func(c fiber.Ctx) error {
 		includeIssues := c.Query("include_issues")
 		includeCount := includeIssues == "count" || includeIssues == "true" || includeIssues == "1"
 
-		// NEW: optional expansion of fields
 		expandQ := c.Query("expand")
 		expand := expandQ == "1" || expandQ == "true" || expandQ == "full"
 
@@ -96,7 +117,6 @@ func main() {
 				"url":      repo.URL,
 			}
 
-			// NEW: include additional fields if requested
 			if expand {
 				item["url"] = repo.URL
 				item["description"] = repo.Description
@@ -122,12 +142,10 @@ func main() {
 		return c.JSON(result)
 	})
 
-	// Get repository by owner and name
 	app.Get("/repos/:owner/:name", func(c fiber.Ctx) error {
 		owner := c.Params("owner")
 		name := c.Params("name")
 
-		// NEW: optional expansion of fields
 		expandQ := c.Query("expand")
 		expand := expandQ == "1" || expandQ == "true" || expandQ == "full"
 
@@ -152,7 +170,6 @@ func main() {
 			})
 		}
 
-		// NEW: expanded shape if requested
 		return c.JSON(fiber.Map{
 			"hash":             hash,
 			"owner":            owner,
@@ -236,28 +253,11 @@ func main() {
 		})
 	})
 
-	type CrawlRequest struct {
-		StartUsernames []string `json:"start_usernames"`
-		MaxIterations  int      `json:"max_iterations"`
-		DelayMs        int      `json:"delay_ms"`
-		GitHubToken    string   `json:"github_token"`
-		UsePlaywright  bool     `json:"use_playwright"`
-	}
-
-	// Start crawler (fixed: manual JSON parsing + use CrawlStart)
 	app.Post("/crawler/start", func(c fiber.Ctx) error {
 		body := c.Body()
 
-		type startReq struct {
-			StartUsername string `json:"start_username"`
-			MaxIterations int    `json:"max_iterations"`
-			DelayMs       int    `json:"delay_ms"`
-			GitHubToken   string `json:"github_token"`
-			UsePlaywright bool   `json:"use_playwright"`
-		}
-		var req CrawlRequest
+		var req models.CrawlRequest
 		if err := json.Unmarshal(body, &req); err != nil {
-			// try alternate key casing used in scripts
 			type altReq struct {
 				StartUsername string `json:"StartUsername"`
 				MaxIter       int    `json:"MaxIter"`
@@ -373,11 +373,194 @@ func main() {
 		})
 	})
 
+	app.Post("/crawler/telegram/jobs", func(c fiber.Ctx) error {
+		type TelegramJobRequest struct {
+			URLs       []string `json:"urls"`
+			ClearFirst bool     `json:"clear_first,omitempty"`
+			ForceParse bool     `json:"force_parse,omitempty"`
+			ParseMode  string   `json:"parse_mode,omitempty"`
+		}
+
+		var req TelegramJobRequest
+		if err := c.Bind().Body(&req); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid request body"})
+		}
+
+		if len(req.URLs) == 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "urls is required (array of Telegram URLs)"})
+		}
+
+		var tasks []struct {
+			Channel   string
+			MessageID int
+			IsMessage bool
+			URL       string
+		}
+
+		for _, urlStr := range req.URLs {
+			channel, messageID, isMessage := parseTelegramURL(urlStr)
+			if channel == "" {
+				log.Printf("⚠️ Invalid Telegram URL: %s", urlStr)
+				continue
+			}
+
+			tasks = append(tasks, struct {
+				Channel   string
+				MessageID int
+				IsMessage bool
+				URL       string
+			}{
+				Channel:   channel,
+				MessageID: messageID,
+				IsMessage: isMessage,
+				URL:       urlStr,
+			})
+		}
+
+		if len(tasks) == 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "no valid Telegram URLs found"})
+		}
+
+		for _, task := range tasks {
+			go func(ch string, msgID int, isMsg bool, url string, clearFirst bool, force bool) {
+				if isMsg {
+					log.Printf("📨 Parsing specific message: %s", url)
+					if err := telegramJobCrawler.CrawlTelegramMessage(ch, msgID); err != nil {
+						log.Printf("❌ Error parsing message %s: %v", url, err)
+					}
+				} else {
+					log.Printf("📢 Parsing channel: @%s (%s)", ch, url)
+
+					if clearFirst && force {
+						jobs, err := storageService.GetTelegramJobsByChannel(ch)
+						if err == nil {
+							deleted := 0
+							for _, job := range jobs {
+								key := fmt.Sprintf("telegram_job:%s:%d", job.Channel, job.MessageID)
+								if err := storageService.Db.Delete(key); err == nil {
+									deleted++
+								}
+							}
+							log.Printf("🧹 Cleared %d old jobs from @%s", deleted, ch)
+						}
+					}
+
+					if err := telegramJobCrawler.CrawlTelegramChannelJobs(ch); err != nil {
+						log.Printf("❌ Error parsing channel @%s: %v", ch, err)
+					}
+				}
+			}(task.Channel, task.MessageID, task.IsMessage, task.URL, req.ClearFirst, req.ForceParse)
+		}
+
+		return c.JSON(fiber.Map{
+			"message":     "Telegram job crawlers started",
+			"urls":        req.URLs,
+			"tasks":       len(tasks),
+			"force_parse": req.ForceParse,
+			"clear_first": req.ClearFirst,
+			"note":        "Each URL is being processed in parallel",
+		})
+	})
+
+	app.Get("/telegram/jobs", func(c fiber.Ctx) error {
+		page, _ := strconv.Atoi(c.Query("page", "1"))
+		limit, _ := strconv.Atoi(c.Query("limit", "100"))
+		offset := (page - 1) * limit
+
+		jobs, err := storageService.GetTelegramJobsPage(limit, offset)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(jobs)
+	})
+
+	app.Get("/telegram/jobs/:channel", func(c fiber.Ctx) error {
+		channel := c.Params("channel")
+		query := c.Query("q", "")
+
+		var jobs []models.TelegramJob
+		var err error
+
+		if query != "" {
+			jobs, err = storageService.SearchTelegramJobs(query, channel)
+		} else {
+			jobs, err = storageService.GetTelegramJobsByChannel(channel)
+		}
+
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(jobs)
+	})
+
+	app.Get("/telegram/job/:channel/:message_id", func(c fiber.Ctx) error {
+		channel := c.Params("channel")
+		messageIDStr := c.Params("message_id")
+		messageID, err := strconv.Atoi(messageIDStr)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid message_id"})
+		}
+
+		job, err := storageService.GetTelegramJob(channel, messageID)
+		if err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": "telegram job not found"})
+		}
+		return c.JSON(job)
+	})
+
+	app.Get("/telegram/jobs/search", func(c fiber.Ctx) error {
+		query := c.Query("q", "")
+		channel := c.Query("channel", "")
+
+		if query == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "search query is required"})
+		}
+
+		jobs, err := storageService.SearchTelegramJobs(query, channel)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		return c.JSON(fiber.Map{
+			"query":   query,
+			"channel": channel,
+			"count":   len(jobs),
+			"results": jobs,
+		})
+	})
+
+	app.Get("/telegram/jobs/stats/:channel", func(c fiber.Ctx) error {
+		channel := c.Params("channel")
+		count, err := storageService.CountTelegramJobsByChannel(channel)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		jobs, err := storageService.GetTelegramJobsByChannel(channel)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		jobTypes := make(map[string]int)
+		for _, job := range jobs {
+			jobTypes[job.JobType]++
+		}
+
+		return c.JSON(fiber.Map{
+			"channel":         channel,
+			"total_jobs":      count,
+			"job_types":       jobTypes,
+			"latest_job_date": getLatestJobDate(jobs),
+			"average_payment": getAveragePayment(jobs),
+		})
+	})
+
 	app.Get("/api/routes", func(c fiber.Ctx) error {
 		routes := []fiber.Map{
 			{"method": "GET", "path": "/health", "description": "Health check"},
 			{"method": "GET", "path": "/stats", "description": "Get database statistics"},
-			{"method": "GET", "path": "/repos", "description": "Get all repositories (query: include_issues=count)"},
+			{"method": "GET", "path": "/stats/summary", "description": "Get database counts summary"},
+			{"method": "GET", "path": "/repos", "description": "Get all repositories (query: include_issues=count, expand=true)"},
 			{"method": "GET", "path": "/repos/:owner/:name", "description": "Get specific repository"},
 			{"method": "GET", "path": "/repos/:owner/:name/issues", "description": "Get repository issues"},
 			{"method": "GET", "path": "/repos/:owner/:name/prs", "description": "Get repository pull requests"},
@@ -385,9 +568,18 @@ func main() {
 			{"method": "DELETE", "path": "/repos/:owner/:name", "description": "Delete repository"},
 			{"method": "GET", "path": "/contacts", "description": "Get all contacts"},
 			{"method": "GET", "path": "/contacts/:login", "description": "Get specific contact"},
-			{"method": "POST", "path": "/crawler/start", "description": "Start crawler (HTML mode; body: start_username, max_iterations, delay_ms, github_token, use_playwright)"},
+			{"method": "POST", "path": "/crawler/start", "description": "Start GitHub crawler (body: start_username, max_iterations, delay_ms, github_token, use_playwright)"},
 			{"method": "GET", "path": "/crawler/config", "description": "Get current crawler configuration"},
-			{"method": "GET", "path": "/issues", "description": "Get all issues"},
+			{"method": "GET", "path": "/issues", "description": "Get all issues (query: page, limit)"},
+			{"method": "POST", "path": "/crawler/telegram/jobs", "description": "Parse job posts from Telegram (body: urls=[array], clear_first, force_parse, parse_mode)"},
+			{"method": "GET", "path": "/telegram/jobs", "description": "Get all Telegram jobs (query: page, limit)"},
+			{"method": "GET", "path": "/telegram/jobs/:channel", "description": "Get jobs by channel (query: q for search)"},
+			{"method": "GET", "path": "/telegram/job/:channel/:message_id", "description": "Get specific job post"},
+			{"method": "GET", "path": "/telegram/jobs/search", "description": "Search jobs across all channels (query: q, channel)"},
+			{"method": "GET", "path": "/telegram/jobs/stats/:channel", "description": "Get job statistics for channel"},
+			{"method": "POST", "path": "/crawler/telegram/start", "description": "DEPRECATED: Use /crawler/telegram/jobs instead"},
+			{"method": "GET", "path": "/telegram/posts", "description": "DEPRECATED: Telegram posts endpoint"},
+
 			{"method": "GET", "path": "/api/routes", "description": "List all available endpoints"},
 		}
 		return c.JSON(routes)
@@ -398,4 +590,33 @@ func main() {
 	if err := app.Listen(port); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+func parseTelegramURL(urlStr string) (channel string, messageID int, isMessage bool) {
+	urlStr = strings.TrimSpace(urlStr)
+
+	if strings.Contains(urlStr, "/") && strings.Contains(urlStr, "t.me/") {
+		urlStr = strings.TrimPrefix(urlStr, "https://")
+		urlStr = strings.TrimPrefix(urlStr, "http://")
+
+		if strings.HasPrefix(urlStr, "t.me/") {
+			path := strings.TrimPrefix(urlStr, "t.me/")
+			parts := strings.Split(path, "/")
+
+			if len(parts) >= 1 {
+				channel = parts[0]
+				if len(parts) >= 2 {
+					if id, err := strconv.Atoi(parts[1]); err == nil {
+						messageID = id
+						isMessage = true
+					}
+				}
+			}
+		}
+	} else if strings.HasPrefix(urlStr, "@") || !strings.Contains(urlStr, "/") {
+		channel = strings.TrimPrefix(urlStr, "@")
+		isMessage = false
+	}
+
+	return channel, messageID, isMessage
 }

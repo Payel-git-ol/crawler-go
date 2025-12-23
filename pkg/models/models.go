@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// Contact represents a GitHub user/contributor
 type Contact struct {
 	ID        string    `json:"id"`
 	Login     string    `json:"login"`
@@ -19,7 +18,6 @@ type Contact struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Repo represents a GitHub repository
 type Repo struct {
 	ID             string    `json:"id"`
 	Name           string    `json:"name"`
@@ -35,13 +33,12 @@ type Repo struct {
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
-// Issue represents a GitHub issue
 type Issue struct {
 	ID        string    `json:"id"`
 	RepoID    string    `json:"repo_id"`
 	Title     string    `json:"title"`
 	URL       string    `json:"url"`
-	State     string    `json:"state"` // open, closed
+	State     string    `json:"state"`
 	Body      string    `json:"body"`
 	Author    string    `json:"author"`
 	CreatedAt time.Time `json:"created_at"`
@@ -50,13 +47,12 @@ type Issue struct {
 	Responses string    `json:"responses"`
 }
 
-// PullRequest represents a GitHub PR
 type PullRequest struct {
 	ID        string    `json:"id"`
 	RepoID    string    `json:"repo_id"`
 	Title     string    `json:"title"`
 	URL       string    `json:"url"`
-	State     string    `json:"state"` // open, closed, merged
+	State     string    `json:"state"`
 	Body      string    `json:"body"`
 	Author    string    `json:"author"`
 	CreatedAt time.Time `json:"created_at"`
@@ -64,14 +60,43 @@ type PullRequest struct {
 	Hash      string    `json:"hash"`
 }
 
-// MarkovState represents a state in the Markov chain traversal
-type MarkovState struct {
-	CurrentURL string    `json:"current_url"`
-	Visited    []string  `json:"visited"`
-	Timestamp  time.Time `json:"timestamp"`
+type CrawlRequest struct {
+	StartUsernames []string `json:"start_usernames"`
+	MaxIterations  int      `json:"max_iterations"`
+	DelayMs        int      `json:"delay_ms"`
+	GitHubToken    string   `json:"github_token"`
+	UsePlaywright  bool     `json:"use_playwright"`
 }
 
-// MarshalJSON for Contact
+type TelegramPost struct {
+	ID        string    `json:"id"`
+	Channel   string    `json:"channel"`
+	MessageID int       `json:"message_id"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	Timestamp time.Time `json:"timestamp"`
+	Hash      string    `json:"hash"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type TelegramJob struct {
+	ID        string    `json:"id"`
+	Channel   string    `json:"channel"`
+	MessageID int       `json:"message_id"`
+	Title     string    `json:"title"`
+	JobType   string    `json:"job_type"`
+	Task      string    `json:"task"`
+	Payment   string    `json:"payment"`
+	Deadline  string    `json:"deadline"`
+	Views     string    `json:"views"`
+	Date      string    `json:"date"`
+	Hash      string    `json:"hash"`
+	URL       string    `json:"url"`
+	Timestamp time.Time `json:"timestamp"`
+	UpdatedAt time.Time `json:"updated_at"`
+	RawText   string    `json:"raw_text,omitempty"`
+}
+
 func (c Contact) MarshalJSON() ([]byte, error) {
 	type Alias Contact
 	return json.Marshal(struct {
@@ -81,7 +106,6 @@ func (c Contact) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// UnmarshalJSON for Contact
 func (c *Contact) UnmarshalJSON(data []byte) error {
 	type Alias Contact
 	aux := &struct {

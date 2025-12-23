@@ -5,60 +5,54 @@ import (
 	"Fyne-on/pkg/models"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
 type StorageService struct {
-	db *database.BadgerDB
+	Db *database.BadgerDB
 }
 
-// NewStorageService creates a new storage service
 func NewStorageService(db *database.BadgerDB) *StorageService {
-	return &StorageService{db: db}
+	return &StorageService{Db: db}
 }
 
-// SaveContact saves or updates a contact
 func (s *StorageService) SaveContact(contact models.Contact) error {
 	key := "contact:" + contact.Login
 
-	// Generate hash if not set
 	if contact.Hash == "" {
 		contact.Hash = database.GenerateHash(contact.Login, contact.URL)
 	}
 	contact.UpdatedAt = time.Now()
 
-	return s.db.Set(key, contact)
+	return s.Db.Set(key, contact)
 }
 
-// GetContact retrieves a contact
 func (s *StorageService) GetContact(login string) (*models.Contact, error) {
 	key := "contact:" + login
 	var contact models.Contact
-	err := s.db.GetJSON(key, &contact)
+	err := s.Db.GetJSON(key, &contact)
 	if err != nil {
 		return nil, fmt.Errorf("contact not found: %w", err)
 	}
 	return &contact, nil
 }
 
-// SaveRepo saves or updates a repository
 func (s *StorageService) SaveRepo(repo models.Repo) (bool, error) {
 	key := "repo:" + repo.Owner + "/" + repo.Name
 
-	// Generate hash if not set
 	if repo.Hash == "" {
 		repo.Hash = database.GenerateHash(repo.Owner, repo.Name, repo.URL)
 	}
 
-	// Check if exists and hash matches
-	exists, err := s.db.Exists(key)
+	exists, err := s.Db.Exists(key)
 	if err != nil {
 		return false, err
 	}
 
 	if exists {
 		var existing models.Repo
-		if err := s.db.GetJSON(key, &existing); err == nil {
+		if err := s.Db.GetJSON(key, &existing); err == nil {
 			if existing.Hash == repo.Hash {
 				return false, nil // No changes
 			}
@@ -66,38 +60,34 @@ func (s *StorageService) SaveRepo(repo models.Repo) (bool, error) {
 	}
 
 	repo.UpdatedAt = time.Now()
-	return true, s.db.Set(key, repo)
+	return true, s.Db.Set(key, repo)
 }
 
-// GetRepo retrieves a repository
 func (s *StorageService) GetRepo(owner, name string) (*models.Repo, error) {
 	key := "repo:" + owner + "/" + name
 	var repo models.Repo
-	err := s.db.GetJSON(key, &repo)
+	err := s.Db.GetJSON(key, &repo)
 	if err != nil {
 		return nil, fmt.Errorf("repo not found: %w", err)
 	}
 	return &repo, nil
 }
 
-// SaveIssue saves or updates an issue
 func (s *StorageService) SaveIssue(issue models.Issue) (bool, error) {
 	key := "issue:" + issue.RepoID + "/" + issue.ID
 
-	// Generate hash if not set
 	if issue.Hash == "" {
 		issue.Hash = database.GenerateHash(issue.RepoID, issue.ID, issue.URL)
 	}
 
-	// Check if exists and hash matches
-	exists, err := s.db.Exists(key)
+	exists, err := s.Db.Exists(key)
 	if err != nil {
 		return false, err
 	}
 
 	if exists {
 		var existing models.Issue
-		if err := s.db.GetJSON(key, &existing); err == nil {
+		if err := s.Db.GetJSON(key, &existing); err == nil {
 			if existing.Hash == issue.Hash {
 				return false, nil // No changes
 			}
@@ -108,27 +98,24 @@ func (s *StorageService) SaveIssue(issue models.Issue) (bool, error) {
 		issue.UpdatedAt = time.Now()
 	}
 
-	return true, s.db.Set(key, issue)
+	return true, s.Db.Set(key, issue)
 }
 
-// SavePullRequest saves or updates a pull request
 func (s *StorageService) SavePullRequest(pr models.PullRequest) (bool, error) {
 	key := "pr:" + pr.RepoID + "/" + pr.ID
 
-	// Generate hash if not set
 	if pr.Hash == "" {
 		pr.Hash = database.GenerateHash(pr.RepoID, pr.ID, pr.URL)
 	}
 
-	// Check if exists and hash matches
-	exists, err := s.db.Exists(key)
+	exists, err := s.Db.Exists(key)
 	if err != nil {
 		return false, err
 	}
 
 	if exists {
 		var existing models.PullRequest
-		if err := s.db.GetJSON(key, &existing); err == nil {
+		if err := s.Db.GetJSON(key, &existing); err == nil {
 			if existing.Hash == pr.Hash {
 				return false, nil // No changes
 			}
@@ -139,20 +126,19 @@ func (s *StorageService) SavePullRequest(pr models.PullRequest) (bool, error) {
 		pr.UpdatedAt = time.Now()
 	}
 
-	return true, s.db.Set(key, pr)
+	return true, s.Db.Set(key, pr)
 }
 
-// GetAllRepos retrieves all repositories
 func (s *StorageService) GetAllRepos() ([]models.Repo, error) {
 	repos := []models.Repo{}
-	items, err := s.db.GetAll("repo:")
+	items, err := s.Db.GetAll("repo:")
 	if err != nil {
 		return nil, err
 	}
 
 	for key := range items {
 		var repo models.Repo
-		if err := s.db.GetJSON(key, &repo); err == nil {
+		if err := s.Db.GetJSON(key, &repo); err == nil {
 			repos = append(repos, repo)
 		}
 	}
@@ -160,17 +146,16 @@ func (s *StorageService) GetAllRepos() ([]models.Repo, error) {
 	return repos, nil
 }
 
-// GetAllContacts retrieves all contacts
 func (s *StorageService) GetAllContacts() ([]models.Contact, error) {
 	contacts := []models.Contact{}
-	items, err := s.db.GetAll("contact:")
+	items, err := s.Db.GetAll("contact:")
 	if err != nil {
 		return nil, err
 	}
 
 	for key := range items {
 		var contact models.Contact
-		if err := s.db.GetJSON(key, &contact); err == nil {
+		if err := s.Db.GetJSON(key, &contact); err == nil {
 			contacts = append(contacts, contact)
 		}
 	}
@@ -178,14 +163,13 @@ func (s *StorageService) GetAllContacts() ([]models.Contact, error) {
 	return contacts, nil
 }
 
-// GetRepoIssues retrieves all issues for a repository
 func (s *StorageService) GetRepoIssues(repoID string) ([]models.Issue, error) {
 	issues := []models.Issue{}
 	key := "issue:" + repoID + "/"
 
-	err := s.db.IterateWithPrefix(key, func(k string, v []byte) error {
+	err := s.Db.IterateWithPrefix(key, func(k string, v []byte) error {
 		var issue models.Issue
-		if err := s.db.GetJSON(k, &issue); err == nil {
+		if err := s.Db.GetJSON(k, &issue); err == nil {
 			issues = append(issues, issue)
 		}
 		return nil
@@ -194,14 +178,13 @@ func (s *StorageService) GetRepoIssues(repoID string) ([]models.Issue, error) {
 	return issues, err
 }
 
-// GetRepoPullRequests retrieves all pull requests for a repository
 func (s *StorageService) GetRepoPullRequests(repoID string) ([]models.PullRequest, error) {
 	prs := []models.PullRequest{}
 	key := "pr:" + repoID + "/"
 
-	err := s.db.IterateWithPrefix(key, func(k string, v []byte) error {
+	err := s.Db.IterateWithPrefix(key, func(k string, v []byte) error {
 		var pr models.PullRequest
-		if err := s.db.GetJSON(k, &pr); err == nil {
+		if err := s.Db.GetJSON(k, &pr); err == nil {
 			prs = append(prs, pr)
 		}
 		return nil
@@ -210,30 +193,35 @@ func (s *StorageService) GetRepoPullRequests(repoID string) ([]models.PullReques
 	return prs, err
 }
 
-// GetStats returns database statistics
 func (s *StorageService) GetStats() map[string]interface{} {
 	repoCount := 0
 	contactCount := 0
 	issueCount := 0
 	prCount := 0
+	tgJobCount := 0
 
-	s.db.IterateWithPrefix("repo:", func(k string, v []byte) error {
+	s.Db.IterateWithPrefix("repo:", func(k string, v []byte) error {
 		repoCount++
 		return nil
 	})
 
-	s.db.IterateWithPrefix("contact:", func(k string, v []byte) error {
+	s.Db.IterateWithPrefix("contact:", func(k string, v []byte) error {
 		contactCount++
 		return nil
 	})
 
-	s.db.IterateWithPrefix("issue:", func(k string, v []byte) error {
+	s.Db.IterateWithPrefix("issue:", func(k string, v []byte) error {
 		issueCount++
 		return nil
 	})
 
-	s.db.IterateWithPrefix("pr:", func(k string, v []byte) error {
+	s.Db.IterateWithPrefix("pr:", func(k string, v []byte) error {
 		prCount++
+		return nil
+	})
+
+	s.Db.IterateWithPrefix("telegram_job:", func(k string, v []byte) error {
+		tgJobCount++
 		return nil
 	})
 
@@ -242,62 +230,68 @@ func (s *StorageService) GetStats() map[string]interface{} {
 		"contacts":      contactCount,
 		"issues":        issueCount,
 		"pull_requests": prCount,
+		"telegram_jobs": tgJobCount,
 	}
 }
 
-// DeleteRepo deletes a repository and its related data
+type StatsSummary struct {
+	Contacts      int `json:"contacts"`
+	Issues        int `json:"issues"`
+	PullRequests  int `json:"pull_requests"`
+	Repositories  int `json:"repositories"`
+	TelegramPosts int `json:"telegram_posts"`
+	TelegramJobs  int `json:"telegram_jobs"`
+}
+
+func (s *StorageService) GetCounts() (*StatsSummary, error) {
+	contacts, err := s.Db.CountByPrefix("contact:")
+	if err != nil {
+		return nil, fmt.Errorf("count contacts failed: %w", err)
+	}
+	issues, err := s.Db.CountByPrefix("issue:")
+	if err != nil {
+		return nil, fmt.Errorf("count issues failed: %w", err)
+	}
+	prs, err := s.Db.CountByPrefix("pr:")
+	if err != nil {
+		return nil, fmt.Errorf("count pull_requests failed: %w", err)
+	}
+	repos, err := s.Db.CountByPrefix("repo:")
+	if err != nil {
+		return nil, fmt.Errorf("count repositories failed: %w", err)
+	}
+	tgPosts, err := s.Db.CountByPrefix("telegram_post:")
+	if err != nil {
+		return nil, fmt.Errorf("count telegram posts failed: %w", err)
+	}
+	tgJobs, err := s.Db.CountByPrefix("telegram_job:")
+	if err != nil {
+		return nil, fmt.Errorf("count telegram jobs failed: %w", err)
+	}
+
+	return &StatsSummary{
+		Contacts:      contacts,
+		Issues:        issues,
+		PullRequests:  prs,
+		Repositories:  repos,
+		TelegramPosts: tgPosts,
+		TelegramJobs:  tgJobs,
+	}, nil
+}
+
 func (s *StorageService) DeleteRepo(owner, name string) error {
 	key := "repo:" + owner + "/" + name
 	repoID := owner + "/" + name
 
-	// Delete issues
-	s.db.IterateWithPrefix("issue:"+repoID+"/", func(k string, v []byte) error {
-		return s.db.Delete(k)
+	s.Db.IterateWithPrefix("issue:"+repoID+"/", func(k string, v []byte) error {
+		return s.Db.Delete(k)
 	})
 
-	// Delete PRs
-	s.db.IterateWithPrefix("pr:"+repoID+"/", func(k string, v []byte) error {
-		return s.db.Delete(k)
+	s.Db.IterateWithPrefix("pr:"+repoID+"/", func(k string, v []byte) error {
+		return s.Db.Delete(k)
 	})
 
-	// Delete repo
-	return s.db.Delete(key)
-}
-
-// StatsSummary is a compact JSON with aggregated counts.
-// It matches the exact format you requested.
-type StatsSummary struct {
-	Contacts     int `json:"contacts"`
-	Issues       int `json:"issues"`
-	PullRequests int `json:"pull_requests"`
-	Repositories int `json:"repositories"`
-}
-
-// GetCounts returns a StatsSummary by counting key prefixes in the KV store.
-func (s *StorageService) GetCounts() (*StatsSummary, error) {
-	contacts, err := s.db.CountByPrefix("contact:")
-	if err != nil {
-		return nil, fmt.Errorf("count contacts failed: %w", err)
-	}
-	issues, err := s.db.CountByPrefix("issue:")
-	if err != nil {
-		return nil, fmt.Errorf("count issues failed: %w", err)
-	}
-	prs, err := s.db.CountByPrefix("pr:")
-	if err != nil {
-		return nil, fmt.Errorf("count pull_requests failed: %w", err)
-	}
-	repos, err := s.db.CountByPrefix("repo:")
-	if err != nil {
-		return nil, fmt.Errorf("count repositories failed: %w", err)
-	}
-
-	return &StatsSummary{
-		Contacts:     contacts,
-		Issues:       issues,
-		PullRequests: prs,
-		Repositories: repos,
-	}, nil
+	return s.Db.Delete(key)
 }
 
 func (s *StorageService) GetIssuesPage(limit, offset int) ([]models.Issue, error) {
@@ -307,7 +301,7 @@ func (s *StorageService) GetIssuesPage(limit, offset int) ([]models.Issue, error
 	count := 0
 	skipped := 0
 
-	err := s.db.IteratePrefix(prefix, func(_ []byte, v []byte) error {
+	err := s.Db.IteratePrefix(prefix, func(_ []byte, v []byte) error {
 		if skipped < offset {
 			skipped++
 			return nil
@@ -328,4 +322,223 @@ func (s *StorageService) GetIssuesPage(limit, offset int) ([]models.Issue, error
 		return nil, fmt.Errorf("failed to list issues: %w", err)
 	}
 	return out, nil
+}
+
+func (s *StorageService) SaveTelegramPost(post models.TelegramPost) (bool, error) {
+	key := fmt.Sprintf("telegram_post:%s:%d", post.Channel, post.MessageID)
+
+	if post.Hash == "" {
+		post.Hash = database.GenerateHash(post.Channel, fmt.Sprintf("%d", post.MessageID), post.Text)
+	}
+
+	exists, err := s.Db.Exists(key)
+	if err != nil {
+		return false, err
+	}
+
+	if exists {
+		var existing models.TelegramPost
+		if err := s.Db.GetJSON(key, &existing); err == nil {
+			if existing.Hash == post.Hash {
+				return false, nil // No changes
+			}
+		}
+	}
+
+	post.UpdatedAt = time.Now()
+	if err := s.Db.Set(key, post); err != nil {
+		return false, fmt.Errorf("failed to save telegram post %s: %w", key, err)
+	}
+	return true, nil
+}
+
+func (s *StorageService) GetTelegramPost(channel string, messageID int) (*models.TelegramPost, error) {
+	key := fmt.Sprintf("telegram_post:%s:%d", channel, messageID)
+	var post models.TelegramPost
+	err := s.Db.GetJSON(key, &post)
+	if err != nil {
+		return nil, fmt.Errorf("telegram post not found: %w", err)
+	}
+	return &post, nil
+}
+
+func (s *StorageService) GetAllTelegramPosts() ([]models.TelegramPost, error) {
+	var posts []models.TelegramPost
+	err := s.Db.IteratePrefix("telegram_post:", func(key []byte, value []byte) error {
+		var post models.TelegramPost
+		if err := json.Unmarshal(value, &post); err != nil {
+			return fmt.Errorf("failed to unmarshal telegram post: %w", err)
+		}
+		posts = append(posts, post)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all telegram posts: %w", err)
+	}
+	return posts, nil
+}
+
+func (s *StorageService) GetTelegramPostsByChannel(channel string) ([]models.TelegramPost, error) {
+	prefix := fmt.Sprintf("telegram_post:%s:", channel)
+	var posts []models.TelegramPost
+	err := s.Db.IteratePrefix(prefix, func(key []byte, value []byte) error {
+		var post models.TelegramPost
+		if err := json.Unmarshal(value, &post); err != nil {
+			return fmt.Errorf("failed to unmarshal telegram post for channel %s: %w", channel, err)
+		}
+		posts = append(posts, post)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get telegram posts for channel %s: %w", channel, err)
+	}
+	return posts, nil
+}
+
+func (s *StorageService) CountTelegramPostsByChannel(channel string) (int, error) {
+	prefix := fmt.Sprintf("telegram_post:%s:", channel)
+	count := 0
+	err := s.Db.IteratePrefix(prefix, func(_ []byte, _ []byte) error {
+		count++
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to count telegram posts for channel %s: %w", channel, err)
+	}
+	return count, nil
+}
+
+func (s *StorageService) SaveTelegramJob(job models.TelegramJob) (bool, error) {
+	key := fmt.Sprintf("telegram_job:%s:%d", job.Channel, job.MessageID)
+
+	job.Hash = database.GenerateHash(
+		job.Channel,
+		fmt.Sprintf("%d", job.MessageID),
+		job.Title,
+		job.Task,
+		job.Payment,
+		job.Deadline,
+		time.Now().Format("20060102150405"),
+	)
+
+	job.UpdatedAt = time.Now()
+	if err := s.Db.Set(key, job); err != nil {
+		return false, fmt.Errorf("failed to save telegram job %s: %w", key, err)
+	}
+
+	exists, _ := s.Db.Exists(key)
+	return !exists, nil
+}
+
+func (s *StorageService) GetTelegramJob(channel string, messageID int) (*models.TelegramJob, error) {
+	key := fmt.Sprintf("telegram_job:%s:%d", channel, messageID)
+	var job models.TelegramJob
+	err := s.Db.GetJSON(key, &job)
+	if err != nil {
+		return nil, fmt.Errorf("telegram job not found: %w", err)
+	}
+	return &job, nil
+}
+
+func (s *StorageService) GetAllTelegramJobs() ([]models.TelegramJob, error) {
+	var jobs []models.TelegramJob
+	err := s.Db.IteratePrefix("telegram_job:", func(key []byte, value []byte) error {
+		var job models.TelegramJob
+		if err := json.Unmarshal(value, &job); err != nil {
+			return fmt.Errorf("failed to unmarshal telegram job: %w", err)
+		}
+		jobs = append(jobs, job)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all telegram jobs: %w", err)
+	}
+	return jobs, nil
+}
+
+func (s *StorageService) GetTelegramJobsByChannel(channel string) ([]models.TelegramJob, error) {
+	prefix := fmt.Sprintf("telegram_job:%s:", channel)
+	var jobs []models.TelegramJob
+	err := s.Db.IteratePrefix(prefix, func(key []byte, value []byte) error {
+		var job models.TelegramJob
+		if err := json.Unmarshal(value, &job); err != nil {
+			return fmt.Errorf("failed to unmarshal telegram job for channel %s: %w", channel, err)
+		}
+		jobs = append(jobs, job)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get telegram jobs for channel %s: %w", channel, err)
+	}
+	return jobs, nil
+}
+
+func (s *StorageService) CountTelegramJobsByChannel(channel string) (int, error) {
+	prefix := fmt.Sprintf("telegram_job:%s:", channel)
+	count := 0
+	err := s.Db.IteratePrefix(prefix, func(_ []byte, _ []byte) error {
+		count++
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to count telegram jobs for channel %s: %w", channel, err)
+	}
+	return count, nil
+}
+
+func (s *StorageService) GetTelegramJobsPage(limit, offset int) ([]models.TelegramJob, error) {
+	const prefix = "telegram_job:"
+	out := make([]models.TelegramJob, 0, limit)
+
+	count := 0
+	skipped := 0
+
+	err := s.Db.IteratePrefix(prefix, func(_ []byte, v []byte) error {
+		if skipped < offset {
+			skipped++
+			return nil
+		}
+		if count >= limit {
+			return nil
+		}
+
+		var job models.TelegramJob
+		if err := json.Unmarshal(v, &job); err != nil {
+			return err
+		}
+		out = append(out, job)
+		count++
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list telegram jobs: %w", err)
+	}
+	return out, nil
+}
+
+func (s *StorageService) SearchTelegramJobs(query string, channel string) ([]models.TelegramJob, error) {
+	var jobs []models.TelegramJob
+	var allJobs []models.TelegramJob
+	var err error
+
+	if channel != "" {
+		allJobs, err = s.GetTelegramJobsByChannel(channel)
+	} else {
+		allJobs, err = s.GetAllTelegramJobs()
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	query = strings.ToLower(query)
+	for _, job := range allJobs {
+		if strings.Contains(strings.ToLower(job.Title), query) ||
+			strings.Contains(strings.ToLower(job.Task), query) ||
+			strings.Contains(strings.ToLower(job.JobType), query) {
+			jobs = append(jobs, job)
+		}
+	}
+
+	return jobs, nil
 }

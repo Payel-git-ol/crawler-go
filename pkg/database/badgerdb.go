@@ -46,7 +46,6 @@ func InitDB() (*BadgerDB, error) {
 	return &BadgerDB{db: db}, nil
 }
 
-// Close closes the database
 func (b *BadgerDB) Close() error {
 	return b.db.Close()
 }
@@ -147,7 +146,6 @@ func (b *BadgerDB) GC() error {
 	return b.db.RunValueLogGC(0.5)
 }
 
-// Backup creates a backup
 func (b *BadgerDB) Backup(backupPath string) error {
 	if err := os.MkdirAll(backupPath, 0755); err != nil {
 		return err
@@ -218,7 +216,6 @@ func (b *BadgerDB) IteratePrefix(prefix string, fn func(k []byte, v []byte) erro
 			item := it.Item()
 			k := item.KeyCopy(nil)
 			if err := item.Value(func(v []byte) error {
-				// pass a copy of value to callback
 				val := make([]byte, len(v))
 				copy(val, v)
 				return fn(k, val)
