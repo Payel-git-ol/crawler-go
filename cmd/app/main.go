@@ -1,7 +1,7 @@
 package main
 
 import (
-	"Fyne-on/pkg/crawler"
+	crawler2 "Fyne-on/internal/core/crawler"
 	"Fyne-on/pkg/database"
 	"Fyne-on/pkg/models"
 	"Fyne-on/pkg/storage"
@@ -45,11 +45,11 @@ func main() {
 
 	storageService := storage.NewStorageService(db)
 
-	githubCrawler := crawler.NewGithubCrawler(storageService)
+	githubCrawler := crawler2.NewGithubCrawler(storageService)
 	githubCrawler.SetMaxIterations(100)
 	githubCrawler.SetDelayMs(5)
 
-	telegramJobCrawler := crawler.NewTelegramJobCrawler(storageService)
+	telegramJobCrawler := crawler2.NewTelegramJobCrawler(storageService)
 
 	currentCrawlerConfig := struct {
 		StartUsername string

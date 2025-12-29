@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"Fyne-on/internal/core/markov"
 	"encoding/json"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
@@ -12,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"Fyne-on/pkg/markov"
 	"Fyne-on/pkg/models"
 	"Fyne-on/pkg/scraper"
 	"Fyne-on/pkg/storage"
