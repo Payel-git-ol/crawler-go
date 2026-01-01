@@ -5,7 +5,6 @@ go 1.25.0
 require (
 	github.com/PuerkitoBio/goquery v1.9.2
 	github.com/dgraph-io/badger/v3 v3.2103.5
-	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/gofiber/fiber/v3 v3.0.0-rc.3
 )
 
@@ -26,7 +25,6 @@ require (
 	github.com/google/flatbuffers v1.12.1 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/klauspost/compress v1.18.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

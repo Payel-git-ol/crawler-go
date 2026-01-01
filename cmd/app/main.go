@@ -4,6 +4,7 @@ import (
 	crawler2 "Fyne-on/internal/core/crawler"
 	"Fyne-on/pkg/database"
 	"Fyne-on/pkg/models"
+	"Fyne-on/pkg/parquet"
 	"Fyne-on/pkg/storage"
 	"crypto/sha256"
 	"encoding/hex"
@@ -581,8 +582,111 @@ func main() {
 			{"method": "GET", "path": "/telegram/posts", "description": "DEPRECATED: Telegram posts endpoint"},
 
 			{"method": "GET", "path": "/api/routes", "description": "List all available endpoints"},
+
+			// Parquet export endpoints
+			{"method": "POST", "path": "/export/issues", "description": "Export all issues to Parquet format"},
+			{"method": "POST", "path": "/export/pull-requests", "description": "Export all PRs to Parquet format"},
+			{"method": "POST", "path": "/export/repositories", "description": "Export all repositories to Parquet format"},
+			{"method": "POST", "path": "/export/all", "description": "Export all data (issues, PRs, repos) to Parquet format"},
+			{"method": "POST", "path": "/export/all-jsonl", "description": "Export all data to JSONL format (better for LLM training)"},
 		}
 		return c.JSON(routes)
+	})
+
+	// Parquet export endpoints
+	exporter := parquet.NewParquetExporter(db)
+
+	app.Post("/export/issues", func(c fiber.Ctx) error {
+		outputPath := "./parquet_data/issues.parquet"
+		count, err := exporter.ExportIssuesToParquet(outputPath)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		return c.JSON(fiber.Map{
+			"status":    "success",
+			"message":   "Issues exported to Parquet",
+			"count":     count,
+			"output":    outputPath,
+			"format":    "parquet",
+			"timestamp": c.Get("Date"),
+		})
+	})
+
+	app.Post("/export/pull-requests", func(c fiber.Ctx) error {
+		outputPath := "./parquet_data/pull_requests.parquet"
+		count, err := exporter.ExportPullRequestsToParquet(outputPath)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		return c.JSON(fiber.Map{
+			"status":    "success",
+			"message":   "Pull requests exported to Parquet",
+			"count":     count,
+			"output":    outputPath,
+			"format":    "parquet",
+			"timestamp": c.Get("Date"),
+		})
+	})
+
+	app.Post("/export/repositories", func(c fiber.Ctx) error {
+		outputPath := "./parquet_data/repositories.parquet"
+		count, err := exporter.ExportRepositoriesToParquet(outputPath)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		return c.JSON(fiber.Map{
+			"status":    "success",
+			"message":   "Repositories exported to Parquet",
+			"count":     count,
+			"output":    outputPath,
+			"format":    "parquet",
+			"timestamp": c.Get("Date"),
+		})
+	})
+
+	app.Post("/export/all", func(c fiber.Ctx) error {
+		outputDir := "./parquet_data"
+		results, err := exporter.ExportAllToParquet(outputDir)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		return c.JSON(fiber.Map{
+			"status":        "success",
+			"message":       "All data exported to Parquet",
+			"results":       results,
+			"output_dir":    outputDir,
+			"format":        "parquet",
+			"total_records": results["issues"] + results["pull_requests"] + results["repositories"],
+			"timestamp":     c.Get("Date"),
+		})
+	})
+
+	app.Post("/export/all-jsonl", func(c fiber.Ctx) error {
+		outputDir := "./jsonl_data"
+		results, err := exporter.ExportAllToJSONL(outputDir)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		return c.JSON(fiber.Map{
+			"status":        "success",
+			"message":       "All data exported to JSONL (perfect for LLM training)",
+			"results":       results,
+			"output_dir":    outputDir,
+			"format":        "jsonl",
+			"total_records": results["issues"] + results["pull_requests"] + results["repositories"],
+			"note":          "JSONL format is better for LLM training - each line is a valid JSON object",
+			"timestamp":     c.Get("Date"),
+		})
 	})
 
 	port := ":3000"
