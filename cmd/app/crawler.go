@@ -16,7 +16,9 @@ type Config struct {
 	UsePlaywright bool
 }
 
-func CrawlerStart(c fiber.Ctx, githubCrawler *crawler.GithubCrawler) error {
+var githubCrawler *crawler.GithubCrawler
+
+func CrawlerStart(c fiber.Ctx) error {
 	body := c.Body()
 
 	currentCrawlerConfig := Config{

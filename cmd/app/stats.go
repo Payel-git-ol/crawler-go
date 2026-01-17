@@ -1,17 +1,28 @@
 package main
 
 import (
-	"Fyne-on/pkg/storage"
 	"github.com/gofiber/fiber/v3"
 )
 
-func GetStats(c fiber.Ctx, storageService *storage.StorageService) error {
-	stats := storageService.GetStats()
+func GetStats(c fiber.Ctx) error {
+	if StorageService == nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Storage service not initialized",
+		})
+	}
+
+	stats := StorageService.GetStats()
 	return c.JSON(stats)
 }
 
-func GetStatsSummary(c fiber.Ctx, storageService *storage.StorageService) error {
-	summary, err := storageService.GetCounts()
+func GetStatsSummary(c fiber.Ctx) error {
+	if StorageService == nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Storage service not initialized",
+		})
+	}
+
+	summary, err := StorageService.GetCounts()
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
